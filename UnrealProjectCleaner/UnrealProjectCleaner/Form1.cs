@@ -78,7 +78,20 @@ public partial class Main : Form
             }
         }
         UpdateCheckedListBoxValues();
-        GenerateProjectFiles(AppDomain.CurrentDomain.BaseDirectory);
+        string startPath = AppDomain.CurrentDomain.BaseDirectory;
+        string[] projectFile = Directory.GetFiles(startPath, "*.uproject");
+        if (projectFile.Length > 0)
+        {
+            try
+            {
+                GenerateProjectFiles(projectFile[0]);
+            }
+            catch
+            {
+
+            }
+        }
+       
     }
     public void DeleteFiles(string dizinYolu)
     {
@@ -201,8 +214,6 @@ public partial class Main : Form
             {
                 process.WaitForExit();
             }
-
-            System.Windows.Forms.MessageBox.Show("Proje dosyaları başarıyla oluşturuldu (.sln geldi).");
         }
         catch (Exception ex)
         {

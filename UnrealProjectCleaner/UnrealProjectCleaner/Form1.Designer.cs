@@ -43,7 +43,7 @@ partial class Main
         checkedDirectories.Location = new Point(14, 16);
         checkedDirectories.Margin = new Padding(3, 4, 3, 4);
         checkedDirectories.Name = "checkedDirectories";
-        checkedDirectories.Size = new Size(1176, 554);
+        checkedDirectories.Size = new Size(1025, 554);
         checkedDirectories.TabIndex = 0;
         // 
         // buttonCheckedAll
@@ -70,7 +70,7 @@ partial class Main
         // 
         // buttonCleanBuild
         // 
-        buttonCleanBuild.Location = new Point(1061, 581);
+        buttonCleanBuild.Location = new Point(910, 581);
         buttonCleanBuild.Margin = new Padding(3, 4, 3, 4);
         buttonCleanBuild.Name = "buttonCleanBuild";
         buttonCleanBuild.Size = new Size(129, 59);
@@ -81,7 +81,7 @@ partial class Main
         // 
         // buttonClean
         // 
-        buttonClean.Location = new Point(926, 582);
+        buttonClean.Location = new Point(775, 582);
         buttonClean.Margin = new Padding(3, 4, 3, 4);
         buttonClean.Name = "buttonClean";
         buttonClean.Size = new Size(129, 59);
@@ -94,7 +94,7 @@ partial class Main
         // 
         AutoScaleDimensions = new SizeF(8F, 20F);
         AutoScaleMode = AutoScaleMode.Font;
-        ClientSize = new Size(1202, 656);
+        ClientSize = new Size(1053, 656);
         Controls.Add(buttonClean);
         Controls.Add(buttonCleanBuild);
         Controls.Add(buttonUncheckedAll);
