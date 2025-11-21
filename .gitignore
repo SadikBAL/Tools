@@ -30,3 +30,15 @@
 *.exe
 *.out
 *.app
+
+.vs/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.ide
+*.bin
+
+[Oo]bj/
+[Dd]ebug/
+.idea/
