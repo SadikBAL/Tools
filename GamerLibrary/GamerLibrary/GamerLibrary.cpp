@@ -1,20 +1,184 @@
-// GamerLibrary.cpp : This file contains the 'main' function. Program execution begins and ends there.
-//
-
 #include <iostream>
+#include <string>
+#include <vector>
+// NuGet üzerinden 'nlohmann.json' ve 'curl' kütüphanelerini kurduğunuzdan emin olun.
+#include <nlohmann/json.hpp>
+#include <curl/curl.h>
+
+#include <algorithm> // std::transform için
+#include <cctype>    // std::tolower için
+#include <string>
+
+using json = nlohmann::json;
+
+// Curl'den gelen veriyi string'e yazmak için yardımcı fonksiyon
+size_t WriteCallback(void* contents, size_t size, size_t nmemb, void* userp)
+{
+    ((std::string*)userp)->append((char*)contents, size * nmemb);
+    return size * nmemb;
+}
+
+std::string ToLower(std::string str) {
+    std::transform(str.begin(), str.end(), str.begin(),
+        [](unsigned char c) { return std::tolower(c); });
+    return str;
+}
+
+void PrintLine(int width) {
+    std::cout << " " << std::string(width, '-') << std::endl;
+}
 
 int main()
 {
-    std::cout << "Hello World!\n";
+    // --- AYARLAR ---
+    std::string apiKey = "D69DA3022BC0A8836311D2B5349F436B"; // Steam Web API Key
+    std::string steamId = "76561198060886364";   // Steam ID 64 (örn: 7656119xxxx...)
+    // ----------------
+
+    CURL* curl;
+    CURLcode res;
+    std::string readBuffer;
+
+    // URL Oluşturma: GetOwnedGames endpoint'i kullanılır
+    // include_appinfo=1: Oyun isimlerini de getirir
+    // include_played_free_games=1: Oynanan ücretsiz oyunları da getirir
+    std::string url = "http://api.steampowered.com/IPlayerService/GetOwnedGames/v0001/?key=" + apiKey +
+        "&steamid=" + steamId +
+        "&format=json&include_appinfo=1&include_played_free_games=1";
+    curl = curl_easy_init();
+    if (curl)
+    {
+        std::cout << "Steam baglantisi kuruluyor..." << std::endl;
+
+        curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
+        curl_easy_setopt(curl, CURLOPT_WRITEDATA, &readBuffer);
+
+        // SSL sertifika kontrolünü devre dışı bırakmak gerekebilir (geliştirme ortamı için)
+        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
+
+        res = curl_easy_perform(curl);
+
+        if (res != CURLE_OK)
+        {
+            std::cerr << "curl_easy_perform() basarisiz oldu: " << curl_easy_strerror(res) << std::endl;
+        }
+        else
+        {
+            try
+            {
+                auto jsonData = json::parse(readBuffer);
+
+                if (jsonData.contains("response") && jsonData["response"].contains("games"))
+                {
+                    int gameCount = jsonData["response"]["game_count"];
+
+                    const int wIndex = 5;
+                    const int wName = 50;
+                    const int wTime = 15;
+                    const int totalWidth = wIndex + wName + wTime + 7; // Boşluklar ve dikey çizgiler için ek pay
+
+                    std::cout << "\n";
+                    PrintLine(totalWidth);
+                    std::cout << " | " << std::left << std::setw(wIndex) << "No"
+                        << " | " << std::left << std::setw(wName) << "Oyun Adi"
+                        << " | " << std::right << std::setw(wTime) << "Sure (Saat)"
+                        << " |" << std::endl;
+
+                    PrintLine(totalWidth);
+                    int listedCounter = 0;
+                    for (const auto& game : jsonData["response"]["games"])
+                    {
+                        std::string gameName = "Bilinmeyen Oyun";
+                        if (game.contains("name"))
+                        {
+                            gameName = game["name"];
+                        }
+
+                        std::string lowerName = ToLower(gameName);
+
+                        bool isDemo = false;
+
+                        if (!isDemo) {
+                            size_t demoPos = lowerName.find("demo");
+                            if (demoPos != std::string::npos) {
+                                bool charBeforeOK = (demoPos == 0 || lowerName[demoPos - 1] == ' ');
+                                bool charAfterOK = (demoPos + 4 == lowerName.length() || lowerName[demoPos + 4] == ' ' || lowerName[demoPos + 4] == ':');
+
+                                if (charBeforeOK && charAfterOK) {
+                                    isDemo = true;
+                                }
+                            }
+                        }
+                        if (!isDemo) {
+                            size_t demoPos = lowerName.find("prologue");
+                            if (demoPos != std::string::npos) {
+                                bool charBeforeOK = (demoPos == 0 || lowerName[demoPos - 1] == ' ');
+                                bool charAfterOK = (demoPos + 8 == lowerName.length() || lowerName[demoPos + 8] == ' ' || lowerName[demoPos + 8] == ':');
+
+                                if (charBeforeOK && charAfterOK) {
+                                    isDemo = true;
+                                }
+                            }
+                        }
+                        if (!isDemo) {
+                            size_t demoPos = lowerName.find("teaser");
+                            if (demoPos != std::string::npos) {
+                                bool charBeforeOK = (demoPos == 0 || lowerName[demoPos - 1] == ' ');
+                                bool charAfterOK = (demoPos + 6 == lowerName.length() || lowerName[demoPos + 6] == ' ' || lowerName[demoPos + 6] == ':');
+
+                                if (charBeforeOK && charAfterOK) {
+                                    isDemo = true;
+                                }
+                            }
+                        }
+
+                        if (isDemo) continue;
+
+
+                        int playTime = 0;
+                        if (game.contains("playtime_forever"))
+                        {
+                            playTime = game["playtime_forever"];
+                        }
+                        double hours = playTime / 60.0;
+
+                        // Tablonun bozulmaması için çok uzun isimleri kısaltalım (örn: "Resident Evil 4..." yapalım)
+                        if (gameName.length() > wName) {
+                            gameName = gameName.substr(0, wName - 3) + "...";
+                        }
+
+                        listedCounter++;
+
+                        // Tablo Satırını Yazdır
+                        std::cout << " | " << std::left << std::setw(wIndex) << listedCounter
+                            << " | " << std::left << std::setw(wName) << gameName
+                            << " | " << std::right << std::setw(wTime) << std::fixed << std::setprecision(1) << hours
+                            << " |" << std::endl;
+                    }
+                    PrintLine(totalWidth);
+                    std::cout << " Toplam Listelenen Oyun: " << listedCounter << std::endl;
+                }
+                else
+                {
+                    std::cout << "Oyun listesi bulunamadi veya profil gizli olabilir." << std::endl;
+                    std::cout << "Ham Veri: " << readBuffer << std::endl;
+                }
+            }
+            catch (json::parse_error& e)
+            {
+                std::cerr << "JSON hatasi: " << e.what() << std::endl;
+            }
+        }
+
+        curl_easy_cleanup(curl);
+    }
+    else
+    {
+        std::cerr << "Curl baslatilamadi." << std::endl;
+    }
+
+    std::cout << "\nCikmak icin bir tusa basin...";
+    std::cin.get();
+    return 0;
 }
-
-// Run program: Ctrl + F5 or Debug > Start Without Debugging menu
-// Debug program: F5 or Debug > Start Debugging menu
-
-// Tips for Getting Started: 
-//   1. Use the Solution Explorer window to add/manage files
-//   2. Use the Team Explorer window to connect to source control
-//   3. Use the Output window to see build output and other messages
-//   4. Use the Error List window to view errors
-//   5. Go to Project > Add New Item to create new code files, or Project > Add Existing Item to add existing code files to the project
-//   6. In the future, to open this project again, go to File > Open > Project and select the .sln file
