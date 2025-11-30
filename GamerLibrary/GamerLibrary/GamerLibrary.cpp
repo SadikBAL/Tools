@@ -1,16 +1,17 @@
 #include <iostream>
 #include <string>
 #include <vector>
-// NuGet üzerinden 'nlohmann.json' ve 'curl' kütüphanelerini kurduğunuzdan emin olun.
 #include <nlohmann/json.hpp>
 #include <curl/curl.h>
-
-#include <algorithm> // std::transform için
-#include <cctype>    // std::tolower için
+#include <algorithm>
+#include <cctype>
 #include <string>
 
 using json = nlohmann::json;
-
+struct GameInfo {
+    std::string name;
+    double hours;
+};
 const std::vector<std::string> IGNORED_KEYWORDS = {
     "demo",
     "teaser",
@@ -37,15 +38,9 @@ bool ShouldSkipGame(const std::string& gameName) {
         size_t pos = lowerName.find(keyword);
 
         while (pos != std::string::npos) {
-            // Kontrol edilen sınırları logla
- 
-           // std::cout << "Kontrol ediliyor: " << gameName << " -> Kelime: " << keyword << std::endl;
-            
-
             bool startOk = (pos == 0) || !std::isalnum(static_cast<unsigned char>(lowerName[pos - 1]));
             size_t endPos = pos + keyword.length();
             bool endOk = (endPos == lowerName.length()) || !std::isalnum(static_cast<unsigned char>(lowerName[endPos]));
-
             if (startOk && endOk) {
                 return true;
             }
@@ -54,14 +49,12 @@ bool ShouldSkipGame(const std::string& gameName) {
     }
     return false;
 }
-// Curl'den gelen veriyi string'e yazmak için yardımcı fonksiyon
+
 size_t WriteCallback(void* contents, size_t size, size_t nmemb, void* userp)
 {
     ((std::string*)userp)->append((char*)contents, size * nmemb);
     return size * nmemb;
 }
-
-
 
 void PrintLine(int width) {
     std::cout << " " << std::string(width, '-') << std::endl;
@@ -69,38 +62,31 @@ void PrintLine(int width) {
 
 int main()
 {
-    // --- AYARLAR ---
     std::string apiKey = "D69DA3022BC0A8836311D2B5349F436B"; // Steam Web API Key
     std::string steamId = "76561198060886364";   // Steam ID 64 (örn: 7656119xxxx...)
-    // ----------------
 
     CURL* curl;
     CURLcode res;
     std::string readBuffer;
 
-    // URL Oluşturma: GetOwnedGames endpoint'i kullanılır
-    // include_appinfo=1: Oyun isimlerini de getirir
-    // include_played_free_games=1: Oynanan ücretsiz oyunları da getirir
     std::string url = "http://api.steampowered.com/IPlayerService/GetOwnedGames/v0001/?key=" + apiKey +
         "&steamid=" + steamId +
         "&format=json&include_appinfo=1&include_played_free_games=1";
+
     curl = curl_easy_init();
     if (curl)
     {
-        std::cout << "Steam baglantisi kuruluyor..." << std::endl;
+        std::cout << "Steam connect succesfully." << std::endl;
 
         curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
         curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
         curl_easy_setopt(curl, CURLOPT_WRITEDATA, &readBuffer);
-
-        // SSL sertifika kontrolünü devre dışı bırakmak gerekebilir (geliştirme ortamı için)
         curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
-
         res = curl_easy_perform(curl);
 
         if (res != CURLE_OK)
         {
-            std::cerr << "curl_easy_perform() basarisiz oldu: " << curl_easy_strerror(res) << std::endl;
+            std::cerr << "Steam connect failed." << curl_easy_strerror(res) << std::endl;
         }
         else
         {
@@ -110,7 +96,25 @@ int main()
 
                 if (jsonData.contains("response") && jsonData["response"].contains("games"))
                 {
-                    int gameCount = jsonData["response"]["game_count"];
+                    std::vector<GameInfo> gameList;
+
+                    for (const auto& game : jsonData["response"]["games"])
+                    {
+                        std::string gameName = "Unknown Game";
+                        if (game.contains("name")) gameName = game["name"];
+
+                        if (ShouldSkipGame(gameName)) continue;
+
+                        int playTime = 0;
+                        if (game.contains("playtime_forever")) playTime = game["playtime_forever"];
+                        double hours = playTime / 60.0;
+
+                        gameList.push_back({ gameName, hours });
+                    }
+
+                    std::sort(gameList.begin(), gameList.end(), [](const GameInfo& a, const GameInfo& b) {
+                        return a.name < b.name;
+                        });
 
                     const int wIndex = 5;
                     const int wName = 50;
@@ -119,57 +123,37 @@ int main()
 
                     std::cout << "\n";
                     PrintLine(totalWidth);
-                    std::cout << " | " << std::left << std::setw(wIndex) << "No"
-                        << " | " << std::left << std::setw(wName) << "Oyun Adi"
-                        << " | " << std::right << std::setw(wTime) << "Sure (Saat)"
+                    std::cout << " | " << std::left << std::setw(wIndex) << "#"
+                        << " | " << std::left << std::setw(wName) << "Game"
+                        << " | " << std::right << std::setw(wTime) << "Time"
                         << " |" << std::endl;
 
                     PrintLine(totalWidth);
                     int listedCounter = 0;
-                    for (const auto& game : jsonData["response"]["games"])
+                    for (const auto& game : gameList)
                     {
-                        std::string gameName = "Bilinmeyen Oyun";
-                        if (game.contains("name"))
-                        {
-                            gameName = game["name"];
-                        }
-                        if (ShouldSkipGame(gameName)) {
-                            continue;
-                        }
-
-
-                        int playTime = 0;
-                        if (game.contains("playtime_forever"))
-                        {
-                            playTime = game["playtime_forever"];
-                        }
-                        double hours = playTime / 60.0;
-
-                        // Tablonun bozulmaması için çok uzun isimleri kısaltalım (örn: "Resident Evil 4..." yapalım)
-                        if (gameName.length() > wName) {
-                            gameName = gameName.substr(0, wName - 3) + "...";
+                        std::string displayName = game.name;
+                        if (displayName.length() > wName) {
+                            displayName = displayName.substr(0, wName - 3) + "...";
                         }
 
                         listedCounter++;
-
-                        // Tablo Satırını Yazdır
                         std::cout << " | " << std::left << std::setw(wIndex) << listedCounter
-                            << " | " << std::left << std::setw(wName) << gameName
-                            << " | " << std::right << std::setw(wTime) << std::fixed << std::setprecision(1) << hours
+                            << " | " << std::left << std::setw(wName) << displayName
+                            << " | " << std::right << std::setw(wTime) << std::fixed << std::setprecision(1) << game.hours
                             << " |" << std::endl;
                     }
                     PrintLine(totalWidth);
-                    std::cout << " Toplam Listelenen Oyun: " << listedCounter << std::endl;
                 }
                 else
                 {
-                    std::cout << "Oyun listesi bulunamadi veya profil gizli olabilir." << std::endl;
-                    std::cout << "Ham Veri: " << readBuffer << std::endl;
+                    std::cout << "There is no game or Profile hidden." << std::endl;
+                    std::cout << "Data : " << readBuffer << std::endl;
                 }
             }
             catch (json::parse_error& e)
             {
-                std::cerr << "JSON hatasi: " << e.what() << std::endl;
+                std::cerr << "JSON Error : " << e.what() << std::endl;
             }
         }
 
@@ -177,10 +161,10 @@ int main()
     }
     else
     {
-        std::cerr << "Curl baslatilamadi." << std::endl;
+        std::cerr << "CURL coud not start." << std::endl;
     }
 
-    std::cout << "\nCikmak icin bir tusa basin...";
+    std::cout << "\n...";
     std::cin.get();
     return 0;
 }
