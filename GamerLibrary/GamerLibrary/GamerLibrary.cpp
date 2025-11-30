@@ -11,6 +11,34 @@
 
 using json = nlohmann::json;
 
+const std::vector<std::string> IGNORED_KEYWORDS = {
+    "demo",
+    "teaser",
+    "prologue",
+    "trial",
+    "playable teaser",
+    "soundtrack",
+    "beta",
+    "alpha",
+    "test",
+    "server"
+};
+bool ShouldSkipGame(const std::string& gameName) {
+    std::string lowerName = ToLower(gameName);
+
+    for (const auto& keyword : IGNORED_KEYWORDS) {
+        size_t pos = lowerName.find(keyword);
+        if (pos != std::string::npos) {
+            bool startOk = (pos == 0) || !std::isalnum(lowerName[pos - 1]);
+            size_t endPos = pos + keyword.length();
+            bool endOk = (endPos == lowerName.length()) || !std::isalnum(lowerName[endPos]);
+            if (startOk && endOk) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
 // Curl'den gelen veriyi string'e yazmak için yardımcı fonksiyon
 size_t WriteCallback(void* contents, size_t size, size_t nmemb, void* userp)
 {
@@ -94,46 +122,9 @@ int main()
                         {
                             gameName = game["name"];
                         }
-
-                        std::string lowerName = ToLower(gameName);
-
-                        bool isDemo = false;
-
-                        if (!isDemo) {
-                            size_t demoPos = lowerName.find("demo");
-                            if (demoPos != std::string::npos) {
-                                bool charBeforeOK = (demoPos == 0 || lowerName[demoPos - 1] == ' ');
-                                bool charAfterOK = (demoPos + 4 == lowerName.length() || lowerName[demoPos + 4] == ' ' || lowerName[demoPos + 4] == ':');
-
-                                if (charBeforeOK && charAfterOK) {
-                                    isDemo = true;
-                                }
-                            }
+                        if (ShouldSkipGame(gameName)) {
+                            continue;
                         }
-                        if (!isDemo) {
-                            size_t demoPos = lowerName.find("prologue");
-                            if (demoPos != std::string::npos) {
-                                bool charBeforeOK = (demoPos == 0 || lowerName[demoPos - 1] == ' ');
-                                bool charAfterOK = (demoPos + 8 == lowerName.length() || lowerName[demoPos + 8] == ' ' || lowerName[demoPos + 8] == ':');
-
-                                if (charBeforeOK && charAfterOK) {
-                                    isDemo = true;
-                                }
-                            }
-                        }
-                        if (!isDemo) {
-                            size_t demoPos = lowerName.find("teaser");
-                            if (demoPos != std::string::npos) {
-                                bool charBeforeOK = (demoPos == 0 || lowerName[demoPos - 1] == ' ');
-                                bool charAfterOK = (demoPos + 6 == lowerName.length() || lowerName[demoPos + 6] == ' ' || lowerName[demoPos + 6] == ':');
-
-                                if (charBeforeOK && charAfterOK) {
-                                    isDemo = true;
-                                }
-                            }
-                        }
-
-                        if (isDemo) continue;
 
 
                         int playTime = 0;
