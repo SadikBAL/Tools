@@ -24,17 +24,34 @@ const std::vector<std::string> IGNORED_KEYWORDS = {
     "server"
 };
 bool ShouldSkipGame(const std::string& gameName) {
+    
     std::string lowerName = ToLower(gameName);
 
     for (const auto& keyword : IGNORED_KEYWORDS) {
         size_t pos = lowerName.find(keyword);
-        if (pos != std::string::npos) {
-            bool startOk = (pos == 0) || !std::isalnum(lowerName[pos - 1]);
+
+        // HATA DUZELTMESI:
+        // Eski kodda 'if' vardi, sadece ilk buldugu yere bakiyordu. 
+        // Simdi 'while' ile kelimenin gectigi TUM yerleri kontrol ediyoruz.
+        // Ornegin "Contest Test" isminde ilk "test" (Contest icindeki) elenir,
+        // ama dongu devam eder ve sondaki "Test" kelimesini bulup filtreler.
+
+        while (pos != std::string::npos) {
+            // 1. Kelimenin onunde bosluk veya baslangic mi var?
+            // (unsigned char cast'i, Turkce karakterlerde olasi hatayi onler)
+            bool startOk = (pos == 0) || !std::isalnum(static_cast<unsigned char>(lowerName[pos - 1]));
+
+            // 2. Kelimenin sonunda bosluk, bitis veya noktalama mi var?
             size_t endPos = pos + keyword.length();
-            bool endOk = (endPos == lowerName.length()) || !std::isalnum(lowerName[endPos]);
+            bool endOk = (endPos == lowerName.length()) || !std::isalnum(static_cast<unsigned char>(lowerName[endPos]));
+
+            // Eger kelime bagimsizsa (onunde/arkasinda harf yoksa) -> FILTRELE
             if (startOk && endOk) {
                 return true;
             }
+
+            // Ayni kelimeyi cumlenin devaminda ara
+            pos = lowerName.find(keyword, pos + 1);
         }
     }
     return false;
