@@ -21,8 +21,14 @@ const std::vector<std::string> IGNORED_KEYWORDS = {
     "beta",
     "alpha",
     "test",
+    "playtest",
     "server"
 };
+std::string ToLower(std::string str) {
+    std::transform(str.begin(), str.end(), str.begin(),
+        [](unsigned char c) { return std::tolower(c); });
+    return str;
+}
 bool ShouldSkipGame(const std::string& gameName) {
     
     std::string lowerName = ToLower(gameName);
@@ -30,27 +36,19 @@ bool ShouldSkipGame(const std::string& gameName) {
     for (const auto& keyword : IGNORED_KEYWORDS) {
         size_t pos = lowerName.find(keyword);
 
-        // HATA DUZELTMESI:
-        // Eski kodda 'if' vardi, sadece ilk buldugu yere bakiyordu. 
-        // Simdi 'while' ile kelimenin gectigi TUM yerleri kontrol ediyoruz.
-        // Ornegin "Contest Test" isminde ilk "test" (Contest icindeki) elenir,
-        // ama dongu devam eder ve sondaki "Test" kelimesini bulup filtreler.
-
         while (pos != std::string::npos) {
-            // 1. Kelimenin onunde bosluk veya baslangic mi var?
-            // (unsigned char cast'i, Turkce karakterlerde olasi hatayi onler)
-            bool startOk = (pos == 0) || !std::isalnum(static_cast<unsigned char>(lowerName[pos - 1]));
+            // Kontrol edilen sınırları logla
+ 
+           // std::cout << "Kontrol ediliyor: " << gameName << " -> Kelime: " << keyword << std::endl;
+            
 
-            // 2. Kelimenin sonunda bosluk, bitis veya noktalama mi var?
+            bool startOk = (pos == 0) || !std::isalnum(static_cast<unsigned char>(lowerName[pos - 1]));
             size_t endPos = pos + keyword.length();
             bool endOk = (endPos == lowerName.length()) || !std::isalnum(static_cast<unsigned char>(lowerName[endPos]));
 
-            // Eger kelime bagimsizsa (onunde/arkasinda harf yoksa) -> FILTRELE
             if (startOk && endOk) {
                 return true;
             }
-
-            // Ayni kelimeyi cumlenin devaminda ara
             pos = lowerName.find(keyword, pos + 1);
         }
     }
@@ -63,11 +61,7 @@ size_t WriteCallback(void* contents, size_t size, size_t nmemb, void* userp)
     return size * nmemb;
 }
 
-std::string ToLower(std::string str) {
-    std::transform(str.begin(), str.end(), str.begin(),
-        [](unsigned char c) { return std::tolower(c); });
-    return str;
-}
+
 
 void PrintLine(int width) {
     std::cout << " " << std::string(width, '-') << std::endl;
