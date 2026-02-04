@@ -69,9 +69,38 @@ public partial class Main : Form
         {
             if (checkedDirectories.GetItemChecked(i))
             {
-                string[] allDirectories = Directory.GetDirectories(_folders.ElementAt(i).Key, "*", SearchOption.AllDirectories);
+                string rootPath = _folders.ElementAt(i).Key;
+                var whiteList = new List<string>
+                {
+                    "ProjectFiles",
+                    "Wwise",
+                    "WwiseNiagara",
+                    "WwiseSoundEngine",
+                    "PlayFab",
+                    "Common",
+                    "CommonUsers",
+                    "CommonGame",
+                    "AsyncMixin",
+                    "GameFeatures",
+                    "UIExtension",
+                    "GameplayMessageRouter",
+                    "ModularGameplayActors",
+                    "MultiplayerSessions"
+                };
+
+                string[] allDirectories = Directory.GetDirectories(rootPath, "*", SearchOption.AllDirectories);
+
                 foreach (string directory in allDirectories)
                 {
+                    bool isProtected = whiteList.Any(safeItem =>
+                        directory.IndexOf(safeItem, StringComparison.OrdinalIgnoreCase) >= 0);
+
+                    if (isProtected)
+                    {
+                        
+                        continue;
+                    }
+
                     DeleteFiles(directory);
                 }
 
