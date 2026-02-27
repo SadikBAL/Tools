@@ -31,7 +31,7 @@ public partial class Main : Form
             {
                 string dirName = Path.GetFileName(dirPath);
                 if (dirName.Equals("Binaries", StringComparison.OrdinalIgnoreCase) ||
-                    dirName.Equals("Intermediate", StringComparison.OrdinalIgnoreCase))
+                     dirName.Equals("Intermediate", StringComparison.OrdinalIgnoreCase))
                 {
                     foundPaths.Add(dirPath);
                     fileAndFileCount.Add(dirPath, Directory.GetFiles(dirPath, "*", SearchOption.AllDirectories).Length);
@@ -85,7 +85,9 @@ public partial class Main : Form
                     "UIExtension",
                     "GameplayMessageRouter",
                     "ModularGameplayActors",
-                    "MultiplayerSessions"
+                    "MultiplayerSessions",
+                    "ProceduralLevelGraph",
+                    "TagBaseView"
                 };
 
                 string[] allDirectories = Directory.GetDirectories(rootPath, "*", SearchOption.AllDirectories);
@@ -133,7 +135,17 @@ public partial class Main : Form
             string[] dosyaYollari = Directory.GetFiles(dizinYolu + "\\");
             foreach (string dosyaYolu in dosyaYollari)
             {
-                File.Delete(dosyaYolu);
+                if (dosyaYolu.Contains("Binaries"))
+                {
+                    if(dosyaYolu.Contains(".dll") || dosyaYolu.Contains(".pdb"))
+                    {
+                        File.Delete(dosyaYolu);
+                    }
+                }
+                else
+                {
+                    File.Delete(dosyaYolu);
+                }
             }
             string startPath = AppDomain.CurrentDomain.BaseDirectory;
             string[] slnDosyalari = Directory.GetFiles(startPath, "*.sln");
