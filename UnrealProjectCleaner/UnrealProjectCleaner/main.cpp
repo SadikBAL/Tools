@@ -23,6 +23,10 @@ namespace fs = std::filesystem;
 #define COL_WHITE   "\033[97m"
 
 const std::vector<std::string> WHITELIST = {
+    // UBT critical — deleting these causes full project rebuild
+    "BuildRules",   // compiled C# module rules — never delete
+    "UBTCache",     // UBT dependency cache
+    // Plugin whitelists — these plugins' files are kept intact
     "ProjectFiles",
     "Wwise",
     "WwiseNiagara",
@@ -214,8 +218,13 @@ void DeleteFilesInDir(const fs::path& dir)
             std::string ext = e.path().extension().string();
             std::transform(ext.begin(), ext.end(), ext.begin(),
                            [](unsigned char c) { return (char)std::tolower(c); });
-            if (isBinaries) { if (ext == ".dll" || ext == ".pdb") { std::error_code ec; fs::remove(e.path(), ec); } }
-            else            { std::error_code ec; fs::remove(e.path(), ec); }
+            if (isBinaries)
+            {
+                // Keep .modules — UBT uses it to map module names to DLLs, losing it causes full rebuild
+                if (ext == ".modules") continue;
+                if (ext == ".dll" || ext == ".pdb") { std::error_code ec; fs::remove(e.path(), ec); }
+            }
+            else { std::error_code ec; fs::remove(e.path(), ec); }
         }
     }
     catch (...) {}
