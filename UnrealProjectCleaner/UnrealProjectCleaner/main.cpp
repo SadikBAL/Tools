@@ -77,9 +77,22 @@ fs::path GetExeDir()
     return fs::path(buffer).parent_path();
 }
 
-// Fast file counter using native Windows API
-int CountFiles(const std::wstring& dir)
+// Counts only files that would actually be deleted — mirrors deletion logic
+// isBinaries=true  → only .dll / .pdb  (skip .modules and protected dirs)
+// isBinaries=false → all files         (skip protected dirs)
+int CountDeletableFiles(const std::wstring& dir, bool isBinaries)
 {
+    // Skip whitelisted paths entirely
+    std::string dirA(dir.begin(), dir.end());
+    for (const auto& item : WHITELIST)
+    {
+        std::string lower = dirA;
+        std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+        std::string itemLower = item;
+        std::transform(itemLower.begin(), itemLower.end(), itemLower.begin(), ::tolower);
+        if (lower.find(itemLower) != std::string::npos) return 0;
+    }
+
     int count = 0;
     std::wstring search = dir + L"\\*";
 
@@ -98,12 +111,27 @@ int CountFiles(const std::wstring& dir)
             if (fd.cFileName[0] != L'.')
                 subdirs.push_back(dir + L"\\" + fd.cFileName);
         }
-        else { ++count; }
+        else
+        {
+            if (isBinaries)
+            {
+                // Only count .dll and .pdb, skip .modules
+                std::wstring fname = fd.cFileName;
+                auto dot = fname.rfind(L'.');
+                if (dot != std::wstring::npos)
+                {
+                    std::wstring ext = fname.substr(dot);
+                    std::transform(ext.begin(), ext.end(), ext.begin(), ::towlower);
+                    if (ext == L".dll" || ext == L".pdb") ++count;
+                }
+            }
+            else { ++count; }
+        }
     } while (FindNextFileW(hFind, &fd));
     FindClose(hFind);
 
     for (const auto& sub : subdirs)
-        count += CountFiles(sub);
+        count += CountDeletableFiles(sub, isBinaries);
     return count;
 }
 
@@ -153,12 +181,12 @@ GroupInfo BuildGroup(const std::string& name, const fs::path& ownerDir)
     if (fs::exists(bin) && fs::is_directory(bin))   g.binariesPath     = bin;
     if (fs::exists(mid) && fs::is_directory(mid))   g.intermediatePath = mid;
 
-    // Count in parallel
+    // Count only deletable files, in parallel
     std::future<int> fb, fm;
     if (!g.binariesPath.empty())
-        fb = std::async(std::launch::async, CountFiles, g.binariesPath.wstring());
+        fb = std::async(std::launch::async, CountDeletableFiles, g.binariesPath.wstring(), true);
     if (!g.intermediatePath.empty())
-        fm = std::async(std::launch::async, CountFiles, g.intermediatePath.wstring());
+        fm = std::async(std::launch::async, CountDeletableFiles, g.intermediatePath.wstring(), false);
 
     if (!g.binariesPath.empty())     g.binariesCount     = fb.get();
     if (!g.intermediatePath.empty()) g.intermediateCount = fm.get();
@@ -362,16 +390,17 @@ void PrintMenu(const std::vector<GroupInfo>& groups, const fs::path& startPath)
 
             std::string countStr = binStr + (midStr.empty() ? "" : " " + midStr);
 
-            if (g.selected)
+            if (g.totalCount() == 0)
+            {
+                // Always green + CLEAN, never togglable
+                std::cout << COL_GREEN
+                          << "  [\xE2\x9C\x93] " << idxPad << idxStr << ". " << g.name << namePad << "  [CLEAN]"
+                          << COL_RESET << "\n";
+            }
+            else if (g.selected)
             {
                 std::cout << COL_RED
                           << "  [X] " << idxPad << idxStr << ". " << g.name << namePad << "  " << countStr
-                          << COL_RESET << "\n";
-            }
-            else if (g.totalCount() == 0)
-            {
-                std::cout << COL_GREEN
-                          << "  [\xE2\x9C\x93] " << idxPad << idxStr << ". " << g.name << namePad << "  [CLEAN]"
                           << COL_RESET << "\n";
             }
             else
@@ -419,7 +448,7 @@ int main()
 
         if (line == "q" || line == "Q") break;
 
-        if (line == "a" || line == "A") { for (auto& g : groups) g.selected = true;  continue; }
+        if (line == "a" || line == "A") { for (auto& g : groups) if (g.totalCount() > 0) g.selected = true;  continue; }
         if (line == "n" || line == "N") { for (auto& g : groups) g.selected = false; continue; }
         if (line == "r" || line == "R") { groups = FindTargetFolders(startPath); continue; }
 
@@ -454,7 +483,7 @@ int main()
             try
             {
                 int idx = std::stoi(token) - 1;
-                if (idx >= 0 && idx < (int)groups.size())
+                if (idx >= 0 && idx < (int)groups.size() && groups[idx].totalCount() > 0)
                     groups[idx].selected = !groups[idx].selected;
             }
             catch (...) {}
