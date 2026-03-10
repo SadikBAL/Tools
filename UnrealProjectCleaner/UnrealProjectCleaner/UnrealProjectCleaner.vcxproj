@@ -50,11 +50,11 @@
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <LinkIncremental>true</LinkIncremental>
-    <OutDir>C:\Users\sadik\Works\Unreal\Calypso_LyraFramework\</OutDir>
+    <OutDir>C:\Users\sadik\Works\Unreal\Calypso\</OutDir>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <LinkIncremental>false</LinkIncremental>
-    <OutDir>C:\Users\sadik\Works\Unreal\Calypso_LyraFramework\</OutDir>
+    <OutDir>C:\Users\sadik\Works\Unreal\Calypso\</OutDir>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <ClCompile>
