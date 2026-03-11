@@ -10,7 +10,8 @@
       "WebFetch(domain:api.github.com)",
       "Bash(dotnet build:*)",
       "WebFetch(domain:cdpn.io)",
-      "Bash(dotnet:*)"
+      "Bash(dotnet:*)",
+      "Bash(ls:*)"
     ]
   }
 }

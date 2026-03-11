@@ -62,7 +62,7 @@
 
     /* ---- Hover 3D effect ---- */
     function cardScale(card) {
-        return card.closest('.card-overlay') ? 'scale(1.5)' : '';
+        return card.closest('.card-overlay') ? 'scale(2)' : '';
     }
 
     function updateCard(card, clientX, clientY) {

@@ -85,6 +85,10 @@
     background: transparent;
 }
 
+::deep .nav-login::after {
+    display: none;
+}
+
 ::deep .nav-login:hover {
     border-color: #c084fc;
     background: rgba(192, 132, 252, 0.12);
