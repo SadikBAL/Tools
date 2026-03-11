@@ -2,12 +2,73 @@
    Holographic Event Cards
    ============================================================ */
 
+/* ---- Card Preview Overlay ---- */
+@keyframes overlayIn {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+}
+@keyframes overlayOut {
+    from { opacity: 1; }
+    to   { opacity: 0; }
+}
+@keyframes previewIn {
+    from { opacity: 0; transform: scale(1.15); }
+    to   { opacity: 1; transform: scale(1.5);  }
+}
+@keyframes previewOut {
+    from { opacity: 1; transform: scale(1.5);  }
+    to   { opacity: 0; transform: scale(1.15); }
+}
+
+.card-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+    background: rgba(0, 0, 0, 0.78);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    animation: overlayIn 0.25s ease both;
+    cursor: pointer;
+}
+.card-overlay.closing {
+    animation: overlayOut 0.22s ease both;
+}
+
+.card-overlay .event-card {
+    cursor: default;
+    animation: previewIn 0.32s cubic-bezier(0.22, 1, 0.36, 1) both !important;
+}
+.card-overlay.closing .event-card {
+    animation: previewOut 0.22s ease both !important;
+}
+
 .cards-grid {
     display: flex;
     flex-wrap: wrap;
     gap: 2.5rem;
     justify-content: center;
     padding: 2.5rem 1rem;
+}
+
+/* ---- Card entrance animation ---- */
+@keyframes cardEntrance {
+    0% {
+        opacity: 0;
+        transform: perspective(800px) rotateX(28deg) rotateY(-12deg) translateY(80px) scale(0.78);
+        filter: blur(10px);
+    }
+    60% {
+        opacity: 1;
+        filter: blur(0px);
+    }
+    100% {
+        opacity: 1;
+        transform: perspective(800px) rotateX(0deg) rotateY(0deg) translateY(0px) scale(1);
+        filter: blur(0px);
+    }
 }
 
 /* ---- Card container ---- */
@@ -20,7 +81,6 @@
     height: 342px !important;
     cursor: pointer;
     position: relative;
-    transform: perspective(800px) rotateX(0deg) rotateY(0deg);
     transform-style: preserve-3d;
     transition: transform 0.08s ease, box-shadow 0.08s ease;
     border-radius: 13px;
@@ -28,6 +88,9 @@
         0 14px 40px rgba(0, 0, 0, 0.55),
         0 0 0 1px rgba(255, 255, 255, 0.08);
     flex-shrink: 0;
+
+    opacity: 0;
+    animation: cardEntrance 0.75s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 .event-card:hover {
