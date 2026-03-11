@@ -1,41 +1,38 @@
 @using Microsoft.AspNetCore.Components.Authorization
 
-<div class="top-row ps-3 navbar navbar-dark">
-    <div class="container-fluid">
-        <a class="navbar-brand" href="">EventOrganizer</a>
-    </div>
-</div>
+<div class="nav-container">
+    <input type="checkbox" id="nav-toggle" class="nav-toggle-input" />
+    <label for="nav-toggle" class="nav-toggle-label">
+        <span></span><span></span><span></span>
+    </label>
 
-<input type="checkbox" title="Navigation menu" class="navbar-toggler" />
-
-<div class="nav-scrollable" onclick="document.querySelector('.navbar-toggler').click()">
-    <nav class="nav flex-column">
-
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="public-events">
-                <span class="bi bi-calendar-event-nav-menu" aria-hidden="true"></span> Etkinlikler
-            </NavLink>
-        </div>
+    <nav class="nav-menu">
+        <NavLink class="nav-link" href="" Match="NavLinkMatch.All">
+            <i class="bi bi-house-door-fill nav-icon"></i> Etkinlikler
+        </NavLink>
 
         <AuthorizeView>
             <Authorized>
-                <div class="nav-item px-3">
-                    <NavLink class="nav-link" href="my-events">
-                        <span class="bi bi-person-lines-fill-nav-menu" aria-hidden="true"></span> Etkinliklerim
-                    </NavLink>
-                </div>
-                <div class="nav-item px-3">
-                    <NavLink class="nav-link" href="create-event">
-                        <span class="bi bi-plus-square-fill-nav-menu" aria-hidden="true"></span> Etkinlik Oluştur
-                    </NavLink>
-                </div>
-                <hr class="text-white mx-3 mt-3 mb-1" />
-                <div class="nav-item px-3 d-flex align-items-center gap-2">
-                    <a class="nav-link text-white-50 small flex-grow-1 py-1" href="/profile">
-                        👤 @context.User.Identity?.Name
+                <NavLink class="nav-link" href="my-events">
+                    <i class="bi bi-rocket-takeoff-fill nav-icon"></i> Etkinliklerim
+                </NavLink>
+                <NavLink class="nav-link" href="create-event">
+                    <i class="bi bi-plus-square-fill nav-icon"></i> Etkinlik Oluştur
+                </NavLink>
+            </Authorized>
+        </AuthorizeView>
+    </nav>
+
+    <div class="nav-auth">
+        <AuthorizeView>
+            <Authorized>
+                <div class="nav-user-wrap">
+                    <a class="nav-user-info" href="/profile">
+                        <div class="user-avatar">@GetInitial(context.User.Identity?.Name)</div>
+                        <span class="user-name">@context.User.Identity?.Name</span>
                     </a>
-                    <a href="/logout" title="Çıkış Yap" class="logout-btn">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+                    <a href="/logout" class="nav-logout" title="Çıkış Yap">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" fill="currentColor" viewBox="0 0 16 16">
                             <path fill-rule="evenodd" d="M10 12.5a.5.5 0 0 1-.5.5h-8a.5.5 0 0 1-.5-.5v-9a.5.5 0 0 1 .5-.5h8a.5.5 0 0 1 .5.5v2a.5.5 0 0 0 1 0v-2A1.5 1.5 0 0 0 9.5 2h-8A1.5 1.5 0 0 0 0 3.5v9A1.5 1.5 0 0 0 1.5 14h8a1.5 1.5 0 0 0 1.5-1.5v-2a.5.5 0 0 0-1 0z"/>
                             <path fill-rule="evenodd" d="M15.854 8.354a.5.5 0 0 0 0-.708l-3-3a.5.5 0 0 0-.708.708L14.293 7.5H5.5a.5.5 0 0 0 0 1h8.793l-2.147 2.146a.5.5 0 0 0 .708.708z"/>
                         </svg>
@@ -43,12 +40,19 @@
                 </div>
             </Authorized>
             <NotAuthorized>
-                <hr class="text-white mx-3 mt-3 mb-1" />
-                <div class="nav-item px-3">
-                    <a class="nav-link" href="/login">Google ile Giriş Yap</a>
-                </div>
+                <a class="nav-link nav-login" href="/login">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" fill="currentColor" viewBox="0 0 16 16" style="margin-right:6px">
+                        <path d="M8 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/>
+                        <path d="M8 9a5 5 0 0 0-4.546 2.916C4.475 13.317 6.115 14 8 14s3.526-.683 4.546-1.084A5 5 0 0 0 8 9z"/>
+                    </svg>
+                    Google ile Giriş
+                </a>
             </NotAuthorized>
         </AuthorizeView>
-
-    </nav>
+    </div>
 </div>
+
+@code {
+    private static string GetInitial(string? name)
+        => string.IsNullOrEmpty(name) ? "?" : name[0].ToString().ToUpper();
+}

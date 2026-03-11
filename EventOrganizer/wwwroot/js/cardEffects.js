@@ -1,38 +1,30 @@
-function initCardEffects() {
-    document.querySelectorAll('.event-card').forEach(card => {
-        if (card._cardInit) return;
-        card._cardInit = true;
+(function () {
+    function updateCard(card, clientX, clientY) {
+        const rect = card.getBoundingClientRect();
+        const x = clientX - rect.left;
+        const y = clientY - rect.top;
+        const rotX = ((y / rect.height) - 0.5) * -22;
+        const rotY = ((x / rect.width) - 0.5) * 22;
+        card.style.transform = `perspective(800px) rotateX(${rotX}deg) rotateY(${rotY}deg)`;
+        card.style.setProperty('--mx', Math.round((x / rect.width) * 100) + '%');
+        card.style.setProperty('--my', Math.round((y / rect.height) * 100) + '%');
+        card.style.setProperty('--shine-o', '1');
+    }
 
-        card.addEventListener('mousemove', (e) => {
-            const rect = card.getBoundingClientRect();
-            const x = e.clientX - rect.left;
-            const y = e.clientY - rect.top;
-            const rotX = ((y / rect.height) - 0.5) * -22;
-            const rotY = ((x / rect.width) - 0.5) * 22;
-            const mx = Math.round((x / rect.width) * 100);
-            const my = Math.round((y / rect.height) * 100);
+    function resetCard(card) {
+        card.style.transform = 'perspective(800px) rotateX(0deg) rotateY(0deg)';
+        card.style.setProperty('--mx', '50%');
+        card.style.setProperty('--my', '50%');
+        card.style.setProperty('--shine-o', '0');
+    }
 
-            card.style.transform = `perspective(800px) rotateX(${rotX}deg) rotateY(${rotY}deg)`;
-            card.style.setProperty('--mx', mx + '%');
-            card.style.setProperty('--my', my + '%');
-            card.style.setProperty('--shine-o', '1');
-        });
-
-        card.addEventListener('mouseleave', () => {
-            card.style.transform = 'perspective(800px) rotateX(0deg) rotateY(0deg)';
-            card.style.setProperty('--mx', '50%');
-            card.style.setProperty('--my', '50%');
-            card.style.setProperty('--shine-o', '0');
-        });
+    document.addEventListener('mousemove', (e) => {
+        const card = e.target.closest('.event-card');
+        if (card) updateCard(card, e.clientX, e.clientY);
     });
-}
 
-// İlk yükleme
-initCardEffects();
-
-// Blazor enhanced navigation
-document.addEventListener('blazor:navigated', () => setTimeout(initCardEffects, 0));
-
-// MutationObserver: DOM'a .event-card eklenince otomatik başlat
-new MutationObserver(() => initCardEffects())
-    .observe(document.body, { childList: true, subtree: true });
+    document.addEventListener('mouseout', (e) => {
+        const card = e.target.closest('.event-card');
+        if (card && !card.contains(e.relatedTarget)) resetCard(card);
+    });
+})();

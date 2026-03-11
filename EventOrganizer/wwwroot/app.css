@@ -1,5 +1,50 @@
+:root {
+    --primary:        #c084fc;
+    --secondary:      #a78bfa;
+    --cyan:           #67e8f9;
+    --bg-dark:        #0f172a;
+    --bg-darker:      #020617;
+    --bg-card:        #1e293b;
+    --border:         #334155;
+    --text-primary:   #f1f5f9;
+    --text-secondary: #cbd5e1;
+    --text-muted:     #94a3b8;
+    --gradient-1:     linear-gradient(135deg, #c084fc 0%, #a78bfa 50%, #67e8f9 100%);
+    --shadow-glow:    0 0 30px rgba(192,132,252,0.3);
+}
+
 html, body {
-    font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    font-family: 'Tajawal', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    background: var(--bg-dark);
+    color: var(--text-primary);
+    min-height: 100%;
+}
+
+@keyframes particleFloat {
+    0%   { transform: translateY(0)      rotate(0deg);   opacity: 0;    }
+    5%   {                                               opacity: 0.12; }
+    50%  { transform: translateY(-100vh) rotate(180deg); opacity: 0.08; }
+    95%  {                                               opacity: 0.12; }
+    100% { transform: translateY(-110vh) rotate(360deg); opacity: 0;    }
+}
+
+/* Hareketli grid arka plan */
+.bg-grid {
+    position: fixed;
+    inset: 0;
+    background-image:
+        linear-gradient(var(--primary) 1px, transparent 1px),
+        linear-gradient(90deg, var(--primary) 1px, transparent 1px);
+    background-size: 50px 50px;
+    opacity: 0.05;
+    animation: gridMove 20s linear infinite;
+    pointer-events: none;
+    z-index: 0;
+}
+
+@keyframes gridMove {
+    0%   { transform: translate(0, 0); }
+    100% { transform: translate(50px, 50px); }
 }
 
 a, .btn-link {
