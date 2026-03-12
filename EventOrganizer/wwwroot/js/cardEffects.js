@@ -4,7 +4,7 @@
         document.querySelectorAll('.event-card').forEach((card, i) => {
             card.style.animation = 'none';
             card.style.opacity = '0';
-            card.offsetHeight; /* reflow - animasyonu sıfırlar */
+            card.offsetHeight; /* reflow */
             card.style.opacity = '';
             card.style.animation = `cardEntrance 0.75s ${i * 0.07}s cubic-bezier(0.22, 1, 0.36, 1) both`;
         });
@@ -12,20 +12,30 @@
 
     startCardAnimations();
 
-    /* Kart sayısı farklı olduğunda: DOM değişimini izle */
+    /* Observer sadece #cardsGrid'i izler — filtre/slider DOM değişikliklerini atlar */
     let navTimer;
-    const articleEl = document.querySelector('article.content') || document.body;
-    const observer = new MutationObserver(() => {
-        clearTimeout(navTimer);
-        navTimer = setTimeout(startCardAnimations, 30);
-    });
-    observer.observe(articleEl, { childList: true, subtree: true, characterData: true });
+    let _observer = null;
 
-    /* Kart sayısı aynı olduğunda: Blazor DOM'u morph eder, childList değişmez.
-       blazor:navigated her navigasyonda kesin tetiklendiğinden buradan yakala. */
+    function attachObserver() {
+        if (_observer) _observer.disconnect();
+        const grid = document.getElementById('cardsGrid');
+        if (!grid) return;
+        _observer = new MutationObserver(() => {
+            clearTimeout(navTimer);
+            navTimer = setTimeout(startCardAnimations, 30);
+        });
+        _observer.observe(grid, { childList: true, subtree: true });
+    }
+
+    attachObserver();
+
+    /* blazor:navigated her navigasyonda kesin tetiklendiğinden buradan da yakala */
     document.addEventListener('blazor:navigated', () => {
         clearTimeout(navTimer);
-        navTimer = setTimeout(startCardAnimations, 50);
+        navTimer = setTimeout(() => {
+            startCardAnimations();
+            attachObserver(); // yeni sayfadaki #cardsGrid'e yeniden bağlan
+        }, 50);
     });
 
     /* ---- Card Preview ---- */
@@ -55,7 +65,7 @@
     }
 
     document.addEventListener('click', (e) => {
-        if (e.target.closest('.card-overlay')) return; // preview içindeyse yoksay
+        if (e.target.closest('.card-overlay')) return;
         const card = e.target.closest('.event-card');
         if (card) openPreview(card);
     });

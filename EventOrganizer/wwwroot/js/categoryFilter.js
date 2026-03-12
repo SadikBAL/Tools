@@ -8,7 +8,8 @@
 
     function init() {
         const container = document.getElementById('categoryFilter');
-        if (!container) return;
+        if (!container || container.dataset.cfInit === '1') return;
+        container.dataset.cfInit = '1';
 
         window.CardFilters = window.CardFilters || { dateLo: null, dateHi: null, categories: new Set() };
         window.CardFilters.categories = new Set();
@@ -26,9 +27,9 @@
             </div>
         `;
 
-        const tagsArea = document.getElementById('cfTagsArea');
-        const addBtn   = document.getElementById('cfAddBtn');
-        const countEl  = document.getElementById('cfCount');
+        const tagsArea = container.querySelector('#cfTagsArea');
+        const addBtn   = container.querySelector('#cfAddBtn');
+        const countEl  = container.querySelector('#cfCount');
 
         function updateCount() {
             const n = window.CardFilters.categories.size;
@@ -36,9 +37,7 @@
         }
 
         function renderTags() {
-            // Clear existing chips (keep add button)
             tagsArea.querySelectorAll('.cf-tag').forEach(t => t.remove());
-
             window.CardFilters.categories.forEach(key => {
                 const cat = CATEGORIES.find(c => c.key === key);
                 const chip = document.createElement('div');
@@ -48,22 +47,12 @@
                 chip.addEventListener('click', () => removeTag(key));
                 tagsArea.insertBefore(chip, addBtn);
             });
-
             updateCount();
             if (window.applyCardFilters) window.applyCardFilters();
         }
 
-        function addTag(key) {
-            window.CardFilters.categories.add(key);
-            renderTags();
-            updateDropdown();
-        }
-
-        function removeTag(key) {
-            window.CardFilters.categories.delete(key);
-            renderTags();
-            updateDropdown();
-        }
+        function addTag(key) { window.CardFilters.categories.add(key); renderTags(); updateDropdown(); }
+        function removeTag(key) { window.CardFilters.categories.delete(key); renderTags(); updateDropdown(); }
 
         function updateDropdown() {
             if (!dropdown) return;
@@ -76,10 +65,14 @@
         function openDropdown() {
             if (dropdown) return;
             dropdownOpen = true;
-
             dropdown = document.createElement('div');
             dropdown.className = 'cf-dropdown';
-
+            // Kartların üstünde görünmesi için body'e ekle, fixed pozisyonla yerleştir
+            const rect = container.getBoundingClientRect();
+            dropdown.style.position = 'fixed';
+            dropdown.style.left = (rect.left + 28) + 'px';
+            dropdown.style.top  = (rect.bottom + 8) + 'px';
+            dropdown.style.zIndex = '99999';
             CATEGORIES.forEach(cat => {
                 const item = document.createElement('div');
                 item.className = 'cf-dropdown-item';
@@ -89,25 +82,18 @@
                 item.addEventListener('click', () => addTag(cat.key));
                 dropdown.appendChild(item);
             });
-
-            container.appendChild(dropdown);
-
-            // Close on outside click
-            setTimeout(() => {
-                document.addEventListener('click', onOutsideClick);
-            }, 0);
+            document.body.appendChild(dropdown);
+            setTimeout(() => document.addEventListener('click', onOutsideClick), 0);
         }
 
         function closeDropdown() {
             if (!dropdown) return;
-            dropdown.remove();
-            dropdown = null;
-            dropdownOpen = false;
+            dropdown.remove(); dropdown = null; dropdownOpen = false;
             document.removeEventListener('click', onOutsideClick);
         }
 
         function onOutsideClick(e) {
-            if (!container.contains(e.target)) closeDropdown();
+            if (!container.contains(e.target) && !dropdown?.contains(e.target)) closeDropdown();
         }
 
         addBtn.addEventListener('click', e => {
@@ -118,20 +104,35 @@
         renderTags();
     }
 
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', init);
-    } else {
+    // Navigasyon başlamadan init bayrağını sıfırla
+    document.addEventListener('blazor:navigating', () => {
+        const c = document.getElementById('categoryFilter');
+        if (c) delete c.dataset.cfInit;
+    });
+
+    // blazor:navigated: hem direkt init hem observer yenile
+    document.addEventListener('blazor:navigated', () => {
         init();
+        attachObserver();
+    });
+
+    // MutationObserver: subtree:true ile kart içerikleri değişince de tetiklenir
+    let _observer = null;
+    let _debounce;
+    function attachObserver() {
+        if (_observer) _observer.disconnect();
+        const article = document.querySelector('article.content') || document.body;
+        _observer = new MutationObserver(() => {
+            clearTimeout(_debounce);
+            _debounce = setTimeout(init, 30);
+        });
+        _observer.observe(article, { childList: true, subtree: true });
     }
 
-    document.addEventListener('blazor:navigated', () => {
-        let attempts = 0;
-        function tryInit() {
-            const ready = document.getElementById('categoryFilter') &&
-                          document.querySelectorAll('#cardsGrid .event-card').length > 0;
-            if (ready) { init(); }
-            else if (attempts++ < 20) { setTimeout(tryInit, 50); }
-        }
-        tryInit();
-    });
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', () => { init(); attachObserver(); });
+    } else {
+        init();
+        attachObserver();
+    }
 })();
