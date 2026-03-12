@@ -15,9 +15,14 @@
                     <div class="card-title">Profil Kartı</div>
 
                     <div class="card-image avatar-area">
-                        <div class="avatar-circle">
-                            <span>@initial</span>
-                        </div>
+                        @if (!string.IsNullOrEmpty(pictureUrl))
+                        {
+                            <img src="@pictureUrl" class="avatar-photo" alt="@displayName" referrerpolicy="no-referrer" />
+                        }
+                        else
+                        {
+                            <div class="avatar-circle"><span>@initial</span></div>
+                        }
                     </div>
 
                     <div class="card-type profile-type">Üye</div>
@@ -30,10 +35,6 @@
                         <div class="card-info-row">
                             <span class="icon">✉️</span>
                             <span>@email</span>
-                        </div>
-                        <div class="card-info-row">
-                            <span class="icon">🎂</span>
-                            <span>1 Ocak 1990</span>
                         </div>
                     </div>
 
@@ -60,15 +61,17 @@
 
 @code {
     private string displayName = "";
-    private string initial = "?";
-    private string email = "";
+    private string initial     = "?";
+    private string email       = "";
+    private string pictureUrl  = "";
 
     protected override void OnInitialized()
     {
-        var user = HttpContextAccessor.HttpContext?.User;
+        var user  = HttpContextAccessor.HttpContext?.User;
         displayName = user?.Identity?.Name ?? "?";
-        initial = displayName.Length > 0 ? displayName[0].ToString().ToUpper() : "?";
-        email = user?.FindFirst(ClaimTypes.Email)?.Value ?? "";
+        initial     = displayName.Length > 0 ? displayName[0].ToString().ToUpper() : "?";
+        email       = user?.FindFirst(ClaimTypes.Email)?.Value ?? "";
+        pictureUrl  = user?.FindFirst("picture")?.Value ?? "";
     }
 }
 
@@ -111,6 +114,16 @@
         color: white;
         text-shadow: 0 2px 8px rgba(0,0,0,0.5);
         box-shadow: 0 0 20px rgba(74, 158, 255, 0.4);
+    }
+
+    .avatar-area .avatar-photo {
+        width: 108px !important;
+        height: 108px !important;
+        border-radius: 50%;
+        object-fit: cover;
+        border: 2px solid rgba(74, 158, 255, 0.5);
+        box-shadow: 0 0 22px rgba(74, 158, 255, 0.35);
+        filter: none;
     }
 
     .logout-card-btn {

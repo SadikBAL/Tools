@@ -9,6 +9,7 @@ obj/
 
 ## Hassas bilgiler
 appsettings.Development.json
+firebase-credentials.json
 
 ## Loglar
 *.log

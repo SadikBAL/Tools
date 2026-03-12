@@ -28,7 +28,17 @@
             <Authorized>
                 <div class="nav-user-wrap">
                     <a class="nav-user-info" href="/profile">
-                        <div class="user-avatar">@GetInitial(context.User.Identity?.Name)</div>
+                        @{
+                            var picture = context.User.FindFirst("picture")?.Value;
+                        }
+                        @if (!string.IsNullOrEmpty(picture))
+                        {
+                            <img src="@picture" class="user-avatar user-avatar-photo" alt="" referrerpolicy="no-referrer" />
+                        }
+                        else
+                        {
+                            <div class="user-avatar">@GetInitial(context.User.Identity?.Name)</div>
+                        }
                         <span class="user-name">@context.User.Identity?.Name</span>
                     </a>
                     <a href="/logout" class="nav-logout" title="Çıkış Yap">

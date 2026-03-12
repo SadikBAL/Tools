@@ -1,0 +1,191 @@
+@inject IJSRuntime JS
+@implements IDisposable
+
+@code {
+    [Parameter, EditorRequired] public EventItem Event          { get; set; } = default!;
+    [Parameter]                 public string   SetName         { get; set; } = "EventOrganizer";
+    [Parameter]                 public int      Index           { get; set; }
+    [Parameter]                 public string   CurrentUserId   { get; set; } = "";
+    [Parameter]                 public EventCallback<string> OnDelete { get; set; }
+    [Parameter]                 public EventCallback<string> OnJoin   { get; set; }
+    [Parameter]                 public EventCallback<string> OnLeave  { get; set; }
+
+    private DotNetObjectReference<EventCard>? _dotNetRef;
+
+    private static readonly Dictionary<string, string> CategoryLabels = new()
+    {
+        ["music"] = "Müzik",
+        ["tech"]  = "Teknoloji",
+        ["art"]   = "Sanat",
+        ["sport"] = "Spor",
+    };
+
+    private static readonly Dictionary<string, string> DefaultImages = new()
+    {
+        ["music"] = "https://images.unsplash.com/photo-1470229722913-7c0e2dbbafd3?w=400&h=300&fit=crop",
+        ["tech"]  = "https://images.unsplash.com/photo-1540575467063-178a50c2df87?w=400&h=300&fit=crop",
+        ["art"]   = "https://images.unsplash.com/photo-1547826039-bfc35e0f1ea8?w=400&h=300&fit=crop",
+        ["sport"] = "https://images.unsplash.com/photo-1571008887538-b36bb32f4571?w=400&h=300&fit=crop",
+    };
+
+    private static readonly string[] Months = { "Ocak","Şubat","Mart","Nisan","Mayıs","Haziran","Temmuz","Ağustos","Eylül","Ekim","Kasım","Aralık" };
+    private static readonly string[] Days   = { "Pazar","Pazartesi","Salı","Çarşamba","Perşembe","Cuma","Cumartesi" };
+
+    private string CategoryLabel => CategoryLabels.GetValueOrDefault(Event.Category, Event.Category);
+    private string ImageSrc
+    {
+        get
+        {
+            var url = string.IsNullOrWhiteSpace(Event.ImageUrl)
+                ? DefaultImages.GetValueOrDefault(Event.Category, "")
+                : Event.ImageUrl;
+
+            // Eski kayıtlardaki Firebase URL'lerini same-origin proxy'e çevir
+            if (url.Contains("firebasestorage.googleapis.com"))
+            {
+                var oIdx = url.IndexOf("/o/", StringComparison.Ordinal);
+                if (oIdx >= 0)
+                {
+                    var encoded = url[(oIdx + 3)..];
+                    var qIdx    = encoded.IndexOf('?');
+                    if (qIdx >= 0) encoded = encoded[..qIdx];
+                    return $"/img/{Uri.UnescapeDataString(encoded)}";
+                }
+            }
+
+            return url;
+        }
+    }
+    private string FormattedDate => $"{Event.Date.Day} {Months[Event.Date.Month - 1]} {Event.Date.Year}, {Days[(int)Event.Date.DayOfWeek]} · {Event.Date.Hour:D2}:{Event.Date.Minute:D2}";
+    private string DateAttr      => Event.Date.ToString("yyyy-MM-dd");
+
+    private string CalendarUrl
+    {
+        get
+        {
+            var start = Event.Date.ToUniversalTime();
+            var end   = start.AddHours(1);
+            var fmt   = "yyyyMMddTHHmmssZ";
+            var dates = $"{start.ToString(fmt)}/{end.ToString(fmt)}";
+            var q = (Func<string, string>)System.Web.HttpUtility.UrlEncode;
+            return $"https://calendar.google.com/calendar/render?action=TEMPLATE&text={q(Event.Title)}&dates={dates}&location={q(Event.Location)}&details={q(Event.Description)}";
+        }
+    }
+
+    private bool IsOwner      => !string.IsNullOrEmpty(CurrentUserId) && Event.CreatedByUserId == CurrentUserId;
+    private bool IsParticipant => !string.IsNullOrEmpty(CurrentUserId) && Event.ParticipantIds.Contains(CurrentUserId);
+    private bool ShowDelete   => IsOwner && OnDelete.HasDelegate;
+    private bool ShowLeave    => !IsOwner && IsParticipant && OnLeave.HasDelegate;
+    private bool ShowJoin     => !IsOwner && !IsParticipant && Event.Participants.Count < Event.Capacity && OnJoin.HasDelegate;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && (ShowDelete || ShowJoin || ShowLeave) && !string.IsNullOrEmpty(Event.Id))
+        {
+            _dotNetRef = DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("registerCard", Event.Id, _dotNetRef);
+        }
+    }
+
+    [JSInvokable] public async Task ConfirmAndDelete() => await OnDelete.InvokeAsync(Event.Id);
+    [JSInvokable] public async Task ConfirmJoin()      => await OnJoin.InvokeAsync(Event.Id);
+    [JSInvokable] public async Task ConfirmLeave()     => await OnLeave.InvokeAsync(Event.Id);
+
+    public void Dispose()
+    {
+        if (!string.IsNullOrEmpty(Event.Id))
+            _ = JS.InvokeVoidAsync("unregisterCard", Event.Id).AsTask();
+        _dotNetRef?.Dispose();
+    }
+}
+
+<div class="event-card @Event.Category" data-date="@DateAttr">
+    <div class="card-translater"><div class="card-rotator"><div class="card-front">
+
+        <div class="card-title">@Event.Title</div>
+        <button class="card-share-btn" data-event-id="@Event.Id" data-event-title="@Event.Title" title="Paylaş">
+            <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" fill="currentColor" viewBox="0 0 16 16">
+                <path d="M11 2.5a2.5 2.5 0 1 1 .603 1.628l-6.718 3.12a2.499 2.499 0 0 1 0 1.504l6.718 3.12a2.5 2.5 0 1 1-.488.876l-6.718-3.12a2.5 2.5 0 1 1 0-3.256l6.718-3.12A2.5 2.5 0 0 1 11 2.5z"/>
+            </svg>
+        </button>
+
+        <div class="card-image">
+            <img src="@ImageSrc" alt="@Event.Title" />
+        </div>
+
+        <div class="card-type @Event.Category">@CategoryLabel</div>
+
+        <div class="card-info">
+            <div class="card-info-row">
+                <span class="icon">📅</span>
+                @if (IsOwner || IsParticipant)
+                {
+                    <a class="card-date-text card-date-link"
+                       href="@CalendarUrl"
+                       target="_blank"
+                       rel="noopener noreferrer"
+                       @onclick:stopPropagation="true"
+                       title="Google Takvime Ekle">@FormattedDate</a>
+                }
+                else
+                {
+                    <span class="card-date-text">@FormattedDate</span>
+                }
+            </div>
+            <div class="card-info-row">
+                <span class="icon">📍</span>
+                <a class="card-location-text"
+                   href="https://www.google.com/maps/search/?api=1&query=@Uri.EscapeDataString(Event.Location)"
+                   target="_blank"
+                   rel="noopener noreferrer"
+                   data-location="@Event.Location"
+                   @onclick:stopPropagation="true">@Event.Location</a>
+            </div>
+            <div class="card-info-row card-capacity-row">
+                <span class="icon">👥</span>
+                <span class="capacity-count">@Event.Participants.Count/@Event.Capacity</span>
+                <div class="participant-avatars">
+                    @foreach (var p in Event.Participants.Take(4))
+                    {
+                        @if (!string.IsNullOrEmpty(p.PictureUrl))
+                        {
+                            <img class="p-avatar" src="@p.PictureUrl" referrerpolicy="no-referrer" title="@p.Name" alt="@p.Name" />
+                        }
+                        else
+                        {
+                            <div class="p-avatar p-avatar-initial" title="@p.Name">@(p.Name.Length > 0 ? p.Name[0].ToString().ToUpper() : "?")</div>
+                        }
+                    }
+                    @if (Event.Participants.Count > 4)
+                    {
+                        <div class="p-avatar p-avatar-more">+@(Event.Participants.Count - 4)</div>
+                    }
+                </div>
+            </div>
+        </div>
+
+        <div class="card-divider"></div>
+        <div class="card-desc">@Event.Description</div>
+
+        <div class="card-footer">
+            <span class="card-set">@SetName</span>
+            <span class="card-number">#@Index.ToString("D3")</span>
+            @if (ShowDelete)
+            {
+                <button class="card-delete-btn" data-event-id="@Event.Id" title="Sil">🗑</button>
+            }
+            else if (ShowLeave)
+            {
+                <button class="card-action-btn card-leave-btn" data-event-id="@Event.Id" data-action="leave">Çık</button>
+            }
+            else if (ShowJoin)
+            {
+                <button class="card-action-btn card-join-btn" data-event-id="@Event.Id" data-action="join">Gir</button>
+            }
+        </div>
+
+        <div class="card-shine"></div>
+        <div class="card-glare"></div>
+
+    </div></div></div>
+</div>

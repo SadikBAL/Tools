@@ -148,6 +148,12 @@
     flex-shrink: 0;
 }
 
+.user-avatar-photo {
+    object-fit: cover;
+    display: block;
+    background: none;
+}
+
 .user-name {
     font-size: 0.82rem;
     font-weight: 600;

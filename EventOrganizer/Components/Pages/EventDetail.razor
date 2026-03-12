@@ -1,12 +1,12 @@
-@page "/"
-@page "/public-events"
+@page "/event/{Id}"
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
 @inject FirestoreService FirestoreService
 @inject StorageService StorageService
 @inject AuthenticationStateProvider AuthStateProvider
+@inject NavigationManager Nav
 @inject IJSRuntime JS
 
-<PageTitle>Etkinlikler</PageTitle>
+<PageTitle>@(_event?.Title ?? "Etkinlik")</PageTitle>
 
 @if (_loading)
 {
@@ -18,49 +18,38 @@
             <div class="lo-core"></div>
         </div>
         <div class="lo-texts">
-            <div class="lo-label">Etkinlikler</div>
+            <div class="lo-label">Etkinlik</div>
             <div class="lo-sublabel">Yükleniyor</div>
         </div>
         <div class="lo-dots"><span></span><span></span><span></span></div>
     </div>
 }
+else if (_event == null)
+{
+    <div class="cards-empty">Etkinlik bulunamadı.</div>
+}
 else
 {
-    <div class="filters-row">
-        <div class="category-filter" id="categoryFilter"></div>
-        <div class="date-timeline"   id="dateTimeline"></div>
-    </div>
-
     <div class="cards-grid" id="cardsGrid">
-        @if (_error != null)
-        {
-            <div class="cards-empty">⚠ Bağlantı hatası: @_error</div>
-        }
-        else if (_events.Count == 0)
-        {
-            <div class="cards-empty">Henüz etkinlik yok.</div>
-        }
-        else
-        {
-            @foreach (var (evt, i) in _events.Select((e, i) => (e, i + 1)))
-            {
-                <EventCard Event="evt" Index="i" SetName="EventOrganizer"
-                           CurrentUserId="@_currentUserId"
-                           OnDelete="DeleteEvent"
-                           OnJoin="JoinEvent"
-                           OnLeave="LeaveEvent" />
-            }
-        }
+        <EventCard Event="_event" Index="1" SetName="EventOrganizer"
+                   CurrentUserId="@_currentUserId"
+                   OnDelete="DeleteEvent"
+                   OnJoin="JoinEvent"
+                   OnLeave="LeaveEvent" />
     </div>
 }
 
 @code {
-    private List<EventItem> _events       = [];
-    private bool            _loading      = true;
-    private string?         _error;
-    private string          _currentUserId      = "";
-    private string          _currentUserName    = "";
-    private string          _currentUserPicture = "";
+    [Parameter] public string Id { get; set; } = "";
+
+    private EventItem? _event;
+    private bool       _loading       = true;
+    private bool       _previewOpened = false;
+    private string     _currentUserId      = "";
+    private string     _currentUserName    = "";
+    private string     _currentUserPicture = "";
+
+    private bool IsOwner => !string.IsNullOrEmpty(_currentUserId) && _event?.CreatedByUserId == _currentUserId;
 
     protected override async Task OnInitializedAsync()
     {
@@ -75,12 +64,9 @@ else
                 _currentUserPicture = user.FindFirst("picture")?.Value ?? "";
             }
 
-            _events = await FirestoreService.GetPublicEventsAsync();
+            _event = await FirestoreService.GetEventByIdAsync(Id);
         }
-        catch (Exception ex)
-        {
-            _error = ex.Message;
-        }
+        catch { /* etkinlik bulunamazsa null kalır */ }
         finally
         {
             _loading = false;
@@ -89,10 +75,10 @@ else
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (!_loading)
+        if (!_loading && _event != null && !_previewOpened)
         {
-            await JS.InvokeVoidAsync("initCategoryFilter");
-            await JS.InvokeVoidAsync("initDateTimeline");
+            _previewOpened = true;
+            await JS.InvokeVoidAsync("openEventPreview");
         }
     }
 
@@ -106,11 +92,10 @@ else
         };
         await FirestoreService.JoinEventAsync(eventId, participant);
 
-        var evt = _events.FirstOrDefault(e => e.Id == eventId);
-        if (evt != null)
+        if (_event != null)
         {
-            evt.Participants.Add(participant);
-            evt.ParticipantIds.Add(_currentUserId);
+            _event.Participants.Add(participant);
+            _event.ParticipantIds.Add(_currentUserId);
         }
     }
 
@@ -118,19 +103,18 @@ else
     {
         await FirestoreService.LeaveEventAsync(eventId, _currentUserId);
 
-        var evt = _events.FirstOrDefault(e => e.Id == eventId);
-        if (evt != null)
+        if (_event != null)
         {
-            evt.Participants.RemoveAll(p => p.UserId == _currentUserId);
-            evt.ParticipantIds.Remove(_currentUserId);
+            _event.Participants.RemoveAll(p => p.UserId == _currentUserId);
+            _event.ParticipantIds.Remove(_currentUserId);
         }
     }
 
     private async Task DeleteEvent(string id)
     {
-        var imageUrl = _events.FirstOrDefault(e => e.Id == id)?.ImageUrl;
+        var imageUrl = _event?.ImageUrl;
         await FirestoreService.DeleteEventAsync(id);
         await StorageService.DeleteImageAsync(imageUrl);
-        _events.RemoveAll(e => e.Id == id);
+        Nav.NavigateTo("/my-events");
     }
 }

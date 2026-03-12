@@ -1,4 +1,6 @@
 using EventOrganizer.Components;
+using EventOrganizer.Services;
+using Google.Cloud.Firestore;
 using Microsoft.AspNetCore.Authentication;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -19,11 +21,30 @@ builder.Services.AddAuthentication(options =>
     options.ClientSecret = builder.Configuration["Authentication:Google:ClientSecret"]!;
     options.Scope.Add("profile");
     options.Scope.Add("email");
+    options.ClaimActions.MapJsonKey("picture", "picture");
 });
 
 builder.Services.AddAuthorization();
 builder.Services.AddCascadingAuthenticationState();
 builder.Services.AddHttpContextAccessor();
+
+// Firestore
+var projectId       = builder.Configuration["Firebase:ProjectId"]!;
+var credentialsPath = builder.Configuration["Firebase:CredentialsPath"];
+
+var firestoreBuilder = new FirestoreDbBuilder { ProjectId = projectId };
+if (!string.IsNullOrEmpty(credentialsPath))
+{
+    // Relative path ise proje klasörüne göre çöz
+    var fullPath = Path.IsPathRooted(credentialsPath)
+        ? credentialsPath
+        : Path.Combine(builder.Environment.ContentRootPath, credentialsPath);
+    firestoreBuilder.CredentialsPath = fullPath;
+}
+
+builder.Services.AddSingleton(_ => firestoreBuilder.Build());
+builder.Services.AddScoped<FirestoreService>();
+builder.Services.AddSingleton<StorageService>();
 
 var app = builder.Build();
 
@@ -50,8 +71,26 @@ app.MapGet("/logout", async (HttpContext ctx) =>
     return Results.Redirect("/");
 });
 
+// Firebase Storage proxy — CORS/CORB sorununu ortadan kaldırır (same-origin)
+app.MapGet("/img/{**path}", async (string path, StorageService storage, HttpContext ctx) =>
+{
+    try
+    {
+        var (stream, contentType) = await storage.DownloadAsync(path);
+        ctx.Response.Headers.CacheControl = "public, max-age=31536000";
+        return Results.Stream(stream, contentType);
+    }
+    catch { return Results.NotFound(); }
+});
+
 app.MapStaticAssets();
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
+
+// gRPC QUIC bağlantısını uygulama başlarken arka planda ısıt.
+// İlk kullanıcı isteğinde timeout yaşanmadan önce HTTP/2 fallback devreye girer.
+_ = app.Services.GetRequiredService<FirestoreDb>()
+    .Collection("events").Limit(1).GetSnapshotAsync()
+    .ContinueWith(_ => { });
 
 app.Run();

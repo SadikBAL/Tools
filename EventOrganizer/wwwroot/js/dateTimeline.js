@@ -21,7 +21,6 @@
             card.classList.toggle('dt-hidden', hide);
         });
 
-        // Kart sayısı artsa da azalsa da görünür tüm kartları animasyonla yerleştir
         allCards
             .filter(card => !card.classList.contains('dt-hidden'))
             .forEach((card, i) => {
@@ -33,21 +32,25 @@
             });
     };
 
-    function init() {
+    window.initDateTimeline = function () {
         const container = document.getElementById('dateTimeline');
-        if (!container || container.dataset.dtInit === '1') return;
+        if (!container) return;
+        if (container.querySelector('.dt-label-row')) return; // already initialized
 
         const cards = Array.from(document.querySelectorAll('#cardsGrid .event-card[data-date]'));
         if (!cards.length) return;
 
-        container.dataset.dtInit = '1';
+        // Reset CardFilters date range on fresh init
+        window.CardFilters = window.CardFilters || { dateLo: null, dateHi: null, categories: new Set() };
+        window.CardFilters.dateLo = null;
+        window.CardFilters.dateHi = null;
 
-        const dates    = cards.map(c => new Date(c.dataset.date));
-        const minDate  = new Date(Math.min(...dates));
-        const maxDate  = new Date(Math.max(...dates));
-        const start    = new Date(minDate.getFullYear(), minDate.getMonth(), 1);
-        const end      = new Date(maxDate.getFullYear(), maxDate.getMonth() + 1, 0);
-        const totalMs  = end - start;
+        const dates   = cards.map(c => new Date(c.dataset.date));
+        const minDate = new Date(Math.min(...dates));
+        const maxDate = new Date(Math.max(...dates));
+        const start   = new Date(minDate.getFullYear(), minDate.getMonth(), 1);
+        const end     = new Date(maxDate.getFullYear(), maxDate.getMonth() + 1, 0);
+        const totalMs = end - start;
 
         let pStart = 0, pEnd = 1;
 
@@ -148,39 +151,5 @@
         makeDraggable(handleA, v => { pStart = v; });
         makeDraggable(handleB, v => { pEnd   = v; });
         render();
-    }
-
-    // Navigasyon başlamadan init bayrağını sıfırla
-    document.addEventListener('blazor:navigating', () => {
-        const c = document.getElementById('dateTimeline');
-        if (c) delete c.dataset.dtInit;
-    });
-
-    // blazor:navigated: hem direkt init hem observer yenile
-    document.addEventListener('blazor:navigated', () => {
-        init();
-        attachObserver();
-    });
-
-    // MutationObserver: subtree:true ile kart içerikleri değişince de tetiklenir
-    let _observer = null;
-    let _debounce;
-    function attachObserver() {
-        if (_observer) _observer.disconnect();
-        const article = document.querySelector('article.content') || document.body;
-        _observer = new MutationObserver(() => {
-            clearTimeout(_debounce);
-            _debounce = setTimeout(init, 30);
-        });
-        _observer.observe(article, { childList: true, subtree: true });
-    }
-
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', () => { init(); attachObserver(); });
-    } else {
-        init();
-        attachObserver();
-    }
-
-    window.initDateTimeline = init;
+    };
 })();

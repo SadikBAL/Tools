@@ -6,15 +6,17 @@
         { key: 'sport', label: 'Spor',      color: '#5a9e6f' },
     ];
 
-    function init() {
+    window.initCategoryFilter = function () {
         const container = document.getElementById('categoryFilter');
-        if (!container || container.dataset.cfInit === '1') return;
-        container.dataset.cfInit = '1';
+        if (!container) return;
+        if (container.querySelector('.cf-label-row')) return; // zaten dolu
+
+        // Önceki navigasyondan kalan orphan dropdown varsa temizle
+        document.querySelectorAll('.cf-dropdown').forEach(d => d.remove());
 
         window.CardFilters = window.CardFilters || { dateLo: null, dateHi: null, categories: new Set() };
         window.CardFilters.categories = new Set();
 
-        let dropdownOpen = false;
         let dropdown = null;
 
         container.innerHTML = `
@@ -39,11 +41,11 @@
         function renderTags() {
             tagsArea.querySelectorAll('.cf-tag').forEach(t => t.remove());
             window.CardFilters.categories.forEach(key => {
-                const cat = CATEGORIES.find(c => c.key === key);
+                const cat  = CATEGORIES.find(c => c.key === key);
                 const chip = document.createElement('div');
-                chip.className = `cf-tag cf-tag--${key}`;
+                chip.className  = `cf-tag cf-tag--${key}`;
                 chip.dataset.key = key;
-                chip.innerHTML = `${cat.label}<span class="cf-tag-x">×</span>`;
+                chip.innerHTML  = `${cat.label}<span class="cf-tag-x">×</span>`;
                 chip.addEventListener('click', () => removeTag(key));
                 tagsArea.insertBefore(chip, addBtn);
             });
@@ -51,7 +53,7 @@
             if (window.applyCardFilters) window.applyCardFilters();
         }
 
-        function addTag(key) { window.CardFilters.categories.add(key); renderTags(); updateDropdown(); }
+        function addTag(key)    { window.CardFilters.categories.add(key);    renderTags(); updateDropdown(); }
         function removeTag(key) { window.CardFilters.categories.delete(key); renderTags(); updateDropdown(); }
 
         function updateDropdown() {
@@ -64,18 +66,16 @@
 
         function openDropdown() {
             if (dropdown) return;
-            dropdownOpen = true;
             dropdown = document.createElement('div');
             dropdown.className = 'cf-dropdown';
-            // Kartların üstünde görünmesi için body'e ekle, fixed pozisyonla yerleştir
             const rect = container.getBoundingClientRect();
             dropdown.style.position = 'fixed';
-            dropdown.style.left = (rect.left + 28) + 'px';
-            dropdown.style.top  = (rect.bottom + 8) + 'px';
-            dropdown.style.zIndex = '99999';
+            dropdown.style.left     = (rect.left + 28) + 'px';
+            dropdown.style.top      = (rect.bottom + 8) + 'px';
+            dropdown.style.zIndex   = '99999';
             CATEGORIES.forEach(cat => {
                 const item = document.createElement('div');
-                item.className = 'cf-dropdown-item';
+                item.className   = 'cf-dropdown-item';
                 item.dataset.key = cat.key;
                 if (window.CardFilters.categories.has(cat.key)) item.classList.add('selected');
                 item.innerHTML = `<span class="cf-dot" style="background:${cat.color}"></span>${cat.label}`;
@@ -88,7 +88,7 @@
 
         function closeDropdown() {
             if (!dropdown) return;
-            dropdown.remove(); dropdown = null; dropdownOpen = false;
+            dropdown.remove(); dropdown = null;
             document.removeEventListener('click', onOutsideClick);
         }
 
@@ -98,41 +98,9 @@
 
         addBtn.addEventListener('click', e => {
             e.stopPropagation();
-            dropdownOpen ? closeDropdown() : openDropdown();
+            dropdown ? closeDropdown() : openDropdown();
         });
 
         renderTags();
-    }
-
-    // Navigasyon başlamadan init bayrağını sıfırla
-    document.addEventListener('blazor:navigating', () => {
-        const c = document.getElementById('categoryFilter');
-        if (c) delete c.dataset.cfInit;
-    });
-
-    // blazor:navigated: hem direkt init hem observer yenile
-    document.addEventListener('blazor:navigated', () => {
-        init();
-        attachObserver();
-    });
-
-    // MutationObserver: subtree:true ile kart içerikleri değişince de tetiklenir
-    let _observer = null;
-    let _debounce;
-    function attachObserver() {
-        if (_observer) _observer.disconnect();
-        const article = document.querySelector('article.content') || document.body;
-        _observer = new MutationObserver(() => {
-            clearTimeout(_debounce);
-            _debounce = setTimeout(init, 30);
-        });
-        _observer.observe(article, { childList: true, subtree: true });
-    }
-
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', () => { init(); attachObserver(); });
-    } else {
-        init();
-        attachObserver();
-    }
+    };
 })();
