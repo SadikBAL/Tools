@@ -42,3 +42,7 @@
 [Oo]bj/
 [Dd]ebug/
 .idea/
+EventOrganizer/deploy-update.bat
+EventOrganizer/deploy.bat
+EventOrganizer/deploy-log.txt
+EventOrganizer/grant-secret.bat

@@ -125,4 +125,20 @@ public class FirestoreService
             });
         });
     });
+
+    public Task UpdateEventAsync(EventItem evt) => WithRetry(async () =>
+    {
+        var updates = new Dictionary<string, object>
+        {
+            ["title"]       = evt.Title,
+            ["category"]    = evt.Category,
+            ["date"]        = Timestamp.FromDateTime(DateTime.SpecifyKind(evt.Date, DateTimeKind.Utc)),
+            ["location"]    = evt.Location,
+            ["capacity"]    = evt.Capacity,
+            ["description"] = evt.Description,
+            ["imageUrl"]    = evt.ImageUrl ?? "",
+            ["isPublic"]    = evt.IsPublic,
+        };
+        await _db.Collection("events").Document(evt.Id).UpdateAsync(updates);
+    });
 }

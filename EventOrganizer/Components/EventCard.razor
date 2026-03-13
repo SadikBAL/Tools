@@ -1,5 +1,7 @@
 @inject IJSRuntime JS
+@inject FirestoreService FirestoreService
 @implements IDisposable
+@using System.Text.Json
 
 @code {
     [Parameter, EditorRequired] public EventItem Event          { get; set; } = default!;
@@ -72,11 +74,16 @@
         }
     }
 
+    private string ParticipantsJson => JsonSerializer.Serialize(
+        Event.Participants.Select(p => new { userId = p.UserId, name = p.Name, pictureUrl = p.PictureUrl }));
+
     private bool IsOwner      => !string.IsNullOrEmpty(CurrentUserId) && Event.CreatedByUserId == CurrentUserId;
     private bool IsParticipant => !string.IsNullOrEmpty(CurrentUserId) && Event.ParticipantIds.Contains(CurrentUserId);
+    private bool IsFull       => Event.Participants.Count >= Event.Capacity;
     private bool ShowDelete   => IsOwner && OnDelete.HasDelegate;
     private bool ShowLeave    => !IsOwner && IsParticipant && OnLeave.HasDelegate;
-    private bool ShowJoin     => !IsOwner && !IsParticipant && Event.Participants.Count < Event.Capacity && OnJoin.HasDelegate;
+    private bool ShowJoin     => !string.IsNullOrEmpty(CurrentUserId) && !IsOwner && !IsParticipant && !IsFull && OnJoin.HasDelegate;
+    private bool ShowFull     => !IsOwner && !IsParticipant && IsFull;
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -90,6 +97,21 @@
     [JSInvokable] public async Task ConfirmAndDelete() => await OnDelete.InvokeAsync(Event.Id);
     [JSInvokable] public async Task ConfirmJoin()      => await OnJoin.InvokeAsync(Event.Id);
     [JSInvokable] public async Task ConfirmLeave()     => await OnLeave.InvokeAsync(Event.Id);
+
+    [JSInvokable]
+    public async Task<bool> KickParticipant(string userId)
+    {
+        if (!IsOwner || userId == CurrentUserId) return false;
+        try
+        {
+            await FirestoreService.LeaveEventAsync(Event.Id, userId);
+            Event.Participants.RemoveAll(p => p.UserId == userId);
+            Event.ParticipantIds.Remove(userId);
+            await InvokeAsync(StateHasChanged);
+            return true;
+        }
+        catch { return false; }
+    }
 
     public void Dispose()
     {
@@ -144,7 +166,12 @@
             <div class="card-info-row card-capacity-row">
                 <span class="icon">👥</span>
                 <span class="capacity-count">@Event.Participants.Count/@Event.Capacity</span>
-                <div class="participant-avatars">
+                <div class="participant-avatars"
+                     data-participants="@ParticipantsJson"
+                     data-event-id="@Event.Id"
+                     data-event-title="@Event.Title"
+                     data-owner-id="@Event.CreatedByUserId"
+                     data-current-user-id="@CurrentUserId">
                     @foreach (var p in Event.Participants.Take(4))
                     {
                         @if (!string.IsNullOrEmpty(p.PictureUrl))
@@ -172,7 +199,10 @@
             <span class="card-number">#@Index.ToString("D3")</span>
             @if (ShowDelete)
             {
-                <button class="card-delete-btn" data-event-id="@Event.Id" title="Sil">🗑</button>
+                <div class="card-footer-actions">
+                    <button class="card-edit-btn" data-event-id="@Event.Id" title="Düzenle">✏</button>
+                    <button class="card-delete-btn" data-event-id="@Event.Id" title="Sil">🗑</button>
+                </div>
             }
             else if (ShowLeave)
             {
@@ -181,6 +211,10 @@
             else if (ShowJoin)
             {
                 <button class="card-action-btn card-join-btn" data-event-id="@Event.Id" data-action="join">Gir</button>
+            }
+            else if (ShowFull)
+            {
+                <span class="card-full-badge">Dolu</span>
             }
         </div>
 

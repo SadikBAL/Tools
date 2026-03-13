@@ -1,0 +1,7 @@
+**/bin/
+**/obj/
+appsettings.Development.json
+firebase-credentials.json
+.git/
+*.user
+*.md
