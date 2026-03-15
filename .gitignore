@@ -42,6 +42,13 @@
 [Oo]bj/
 [Dd]ebug/
 .idea/
+
+.claude/
+EventOrganizer/.claude/
+GamerLibrary/.claude/
+UnrealParser/.claude/
+UnrealProjectCleaner/.claude/
+
 EventOrganizer/deploy-update.bat
 EventOrganizer/deploy.bat
 EventOrganizer/deploy-log.txt
