@@ -1432,8 +1432,24 @@
 .card-action-btn,
 .card-delete-btn,
 .card-edit-btn,
-.card-share-btn {
+.card-share-btn,
+.card-location-text,
+.card-date-link,
+.participant-avatars {
     touch-action: manipulation;
+}
+
+/* Preview overlay içindeki kartı touch için tüm pointer events açık tut */
+.card-overlay .event-card,
+.card-overlay .card-front {
+    touch-action: manipulation;
+}
+
+/* Mobil preview gyro wrapper — rotasyonu taşır, kart içi flat kalır */
+.card-tilt-wrapper {
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 
 /* ---- Mobile responsive ---- */

@@ -91,9 +91,17 @@ app.Use(async (context, next) =>
     var path = context.Request.Path.Value ?? "";
     var ua   = context.Request.Headers.UserAgent.ToString();
 
+    if (path.StartsWith("/event/", StringComparison.OrdinalIgnoreCase))
+    {
+        var log = context.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger("OGCrawler");
+        log.LogWarning("[OG] /event/ request: isCrawler={IsCrawler} UA={UA}", IsSocialCrawler(ua), ua);
+    }
+
     if (path.StartsWith("/event/", StringComparison.OrdinalIgnoreCase) && IsSocialCrawler(ua))
     {
+        var log2    = context.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger("OGCrawler");
         var eventId = path["/event/".Length..].Trim('/');
+
         if (!string.IsNullOrWhiteSpace(eventId))
         {
             try
@@ -106,22 +114,52 @@ app.Use(async (context, next) =>
                     var baseUrl = $"{req.Scheme}://{req.Host}";
                     var pageUrl = $"{baseUrl}/event/{eventId}";
 
-                    // ImageUrl /img/... formatında ya da eski firebase URL olabilir
-                    var imageUrl = string.IsNullOrEmpty(evt.ImageUrl)
-                        ? $"{baseUrl}/favicon.png"
-                        : evt.ImageUrl.StartsWith("http")
-                            ? evt.ImageUrl
-                            : $"{baseUrl}{evt.ImageUrl}";
+                    // EventCard.razor ile aynı proxy mantığı — Firebase URL → /img/ proxy
+                    // Resim yoksa kategori default resmi (Unsplash, herkese açık)
+                    var defaultImages = new Dictionary<string, string>
+                    {
+                        ["music"] = "https://images.unsplash.com/photo-1470229722913-7c0e2dbbafd3?w=1200&h=630&fit=crop",
+                        ["tech"]  = "https://images.unsplash.com/photo-1540575467063-178a50c2df87?w=1200&h=630&fit=crop",
+                        ["art"]   = "https://images.unsplash.com/photo-1547826039-bfc35e0f1ea8?w=1200&h=630&fit=crop",
+                        ["sport"] = "https://images.unsplash.com/photo-1571008887538-b36bb32f4571?w=1200&h=630&fit=crop",
+                    };
+
+                    string imageUrl;
+                    var raw = evt.ImageUrl ?? "";
+                    if (string.IsNullOrWhiteSpace(raw))
+                    {
+                        imageUrl = defaultImages.GetValueOrDefault(evt.Category ?? "", "https://images.unsplash.com/photo-1540575467063-178a50c2df87?w=1200&h=630&fit=crop");
+                    }
+                    else if (raw.StartsWith("/img/"))
+                    {
+                        // Yeni format: /img/events/yyyyMMdd/guid.ext → direkt public GCS URL
+                        var cfg    = context.RequestServices.GetRequiredService<IConfiguration>();
+                        var bucket = cfg["Firebase:StorageBucket"]!;
+                        imageUrl = $"https://storage.googleapis.com/{bucket}/{raw["/img/".Length..]}";
+                    }
+                    else if (raw.Contains("firebasestorage.googleapis.com"))
+                    {
+                        // Eski Firebase Storage format → proxy üzerinden
+                        var oIdx = raw.IndexOf("/o/", StringComparison.Ordinal);
+                        if (oIdx >= 0)
+                        {
+                            var encoded = raw[(oIdx + 3)..];
+                            var qIdx    = encoded.IndexOf('?');
+                            if (qIdx >= 0) encoded = encoded[..qIdx];
+                            imageUrl = $"{baseUrl}/img/{Uri.UnescapeDataString(encoded)}";
+                        }
+                        else imageUrl = raw;
+                    }
+                    else
+                    {
+                        imageUrl = raw.StartsWith("http") ? raw : $"{baseUrl}{raw}";
+                    }
 
                     var tr = new System.Globalization.CultureInfo("tr-TR");
                     var datePart = evt.Date.ToString("dd MMMM yyyy · HH:mm", tr);
-                    var subtitle = string.IsNullOrEmpty(evt.Location)
+                    var ogDesc   = string.IsNullOrEmpty(evt.Location)
                         ? datePart
-                        : $"{datePart} · {evt.Location}";
-
-                    var rawDesc  = evt.Description ?? "";
-                    var truncated = rawDesc.Length > 140 ? rawDesc[..140] + "…" : rawDesc;
-                    var ogDesc   = string.IsNullOrEmpty(truncated) ? subtitle : $"{subtitle}\n{truncated}";
+                        : $"{datePart}\n{evt.Location}";
 
                     var html = $"""
                         <!DOCTYPE html>
@@ -130,25 +168,31 @@ app.Use(async (context, next) =>
                         <meta charset="utf-8"/>
                         <title>{E(evt.Title)}</title>
                         <meta name="description" content="{E(ogDesc)}"/>
-                        <meta property="og:type"        content="website"/>
-                        <meta property="og:url"         content="{pageUrl}"/>
-                        <meta property="og:title"       content="{E(evt.Title)}"/>
-                        <meta property="og:description" content="{E(ogDesc)}"/>
-                        <meta property="og:image"       content="{imageUrl}"/>
-                        <meta property="og:image:width"  content="1200"/>
-                        <meta property="og:image:height" content="630"/>
-                        <meta property="og:site_name"   content="EventOrganizer"/>
-                        <meta name="twitter:card"        content="summary_large_image"/>
-                        <meta name="twitter:title"       content="{E(evt.Title)}"/>
-                        <meta name="twitter:description" content="{E(ogDesc)}"/>
-                        <meta name="twitter:image"       content="{imageUrl}"/>
+                        <meta property="og:type"             content="website"/>
+                        <meta property="og:url"              content="{pageUrl}"/>
+                        <meta property="og:title"            content="{E(evt.Title)}"/>
+                        <meta property="og:description"      content="{E(ogDesc)}"/>
+                        <meta property="og:image"            content="{imageUrl}"/>
+                        <meta property="og:image:secure_url" content="{imageUrl}"/>
+                        <meta property="og:image:type"       content="image/jpeg"/>
+                        <meta property="og:image:width"      content="1200"/>
+                        <meta property="og:image:height"     content="630"/>
+                        <meta property="og:image:alt"        content="{E(evt.Title)}"/>
+                        <meta property="og:site_name"        content="EventOrganizer"/>
+                        <meta name="twitter:card"            content="summary_large_image"/>
+                        <meta name="twitter:title"           content="{E(evt.Title)}"/>
+                        <meta name="twitter:description"     content="{E(ogDesc)}"/>
+                        <meta name="twitter:image"           content="{imageUrl}"/>
                         </head>
                         <body>
                         <h1>{E(evt.Title)}</h1>
-                        <p>{E(subtitle)}</p>
+                        <p>{E(ogDesc)}</p>
                         </body>
                         </html>
                         """;
+
+                    log2.LogWarning("[OG] Serving HTML: title={Title} imageRaw={Raw} imageUrl={ImageUrl}",
+                        evt.Title, evt.ImageUrl, imageUrl);
 
                     context.Response.ContentType = "text/html; charset=utf-8";
                     await context.Response.WriteAsync(html);

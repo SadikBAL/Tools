@@ -417,33 +417,44 @@ document.addEventListener('click', async (e) => {
         const mobile = scale < 2;
 
         if (mobile) {
-            // Mobil: CSS animasyonu devre dışı, JS transition kullan
+            // Mobil: gyro rotasyonu card-rotator'a değil bir wrapper'a uygulanır.
+            // Clone transformStyle:flat → butonlar güvenilir 2D hit-test alanına
+            // sahip olur; artık preserve-3d kaynaklı click sentezi sorunu yok.
             clone.style.setProperty('animation', 'none', 'important');
-            clone.style.opacity   = '0';
-            clone.style.transform = `perspective(600px) rotateX(0deg) rotateY(0deg) scale(${(scale * 0.75).toFixed(3)})`;
-            clone.style.transition = 'opacity 0.25s ease, transform 0.32s cubic-bezier(0.22,1,0.36,1)';
+            clone.style.transformStyle = 'flat';
+            clone.style.opacity        = '0';
+            clone.style.transform      = `scale(${(scale * 0.75).toFixed(3)})`;
+            clone.style.transition     = 'opacity 0.25s ease, transform 0.32s cubic-bezier(0.22,1,0.36,1)';
+
+            const wrapper = document.createElement('div');
+            wrapper.className = 'card-tilt-wrapper';
+            wrapper.appendChild(clone);
+            overlay.appendChild(wrapper);
         } else {
             // Desktop: inline 'none' — CSS previewIn !important override eder
             clone.style.animation = 'none';
             clone.style.opacity   = '1';
-            clone.style.transform = `perspective(600px) rotateX(0deg) rotateY(0deg) scale(${scale})`;
+            clone.style.transform = `scale(${scale})`;
+            overlay.appendChild(clone);
         }
 
-        overlay.appendChild(clone);
         document.body.appendChild(overlay);
 
         if (mobile) {
             requestAnimationFrame(() => requestAnimationFrame(() => {
                 clone.style.opacity   = '1';
-                clone.style.transform = `perspective(600px) rotateX(0deg) rotateY(0deg) scale(${scale.toFixed(3)})`;
+                clone.style.transform = `scale(${scale.toFixed(3)})`;
             }));
         }
 
+        let _closed = false;
         function close() {
+            if (_closed) return;
+            _closed = true;
             document.removeEventListener('keydown', onKey);
             if (mobile) {
                 clone.style.opacity   = '0';
-                clone.style.transform = `perspective(600px) rotateX(0deg) rotateY(0deg) scale(${(scale * 0.75).toFixed(3)})`;
+                clone.style.transform = `scale(${(scale * 0.75).toFixed(3)})`;
                 overlay.style.transition = 'opacity 0.22s ease';
                 overlay.style.opacity    = '0';
                 setTimeout(() => overlay.remove(), 230);
@@ -453,9 +464,26 @@ document.addEventListener('click', async (e) => {
             }
         }
 
+        // Kart dışı tıklama/tap → kapat
+        function isInsideCard(clientX, clientY) {
+            const rect = clone.getBoundingClientRect();
+            return clientX >= rect.left && clientX <= rect.right &&
+                   clientY >= rect.top  && clientY <= rect.bottom;
+        }
+
         overlay.addEventListener('click', (e) => {
-            if (!e.target.closest('.event-card')) close();
+            if (!isInsideCard(e.clientX, e.clientY)) close();
         });
+
+        // Mobile: kart dışına tap → overlay'i hemen kapat
+        overlay.addEventListener('touchend', (e) => {
+            const t = e.changedTouches[0];
+            if (!t) return;
+            if (!isInsideCard(t.clientX, t.clientY)) {
+                e.preventDefault();
+                close();
+            }
+        }, { passive: false });
 
         function onKey(e) { if (e.key === 'Escape') close(); }
         document.addEventListener('keydown', onKey);
@@ -506,12 +534,16 @@ document.addEventListener('click', async (e) => {
         card.style.setProperty('--shine-o', '0');
     }
 
-    document.addEventListener('mousemove', (e) => {
+    // pointerType: 'mouse' filtresi — touch tap'lerden sentezlenen sahte
+    // mouse eventleri rotasyonu tetiklemez; sadece gerçek fare hareketi döndürür.
+    document.addEventListener('pointermove', (e) => {
+        if (e.pointerType !== 'mouse') return;
         const card = e.target.closest('.event-card');
         if (card) updateCard(card, e.clientX, e.clientY);
     });
 
-    document.addEventListener('mouseout', (e) => {
+    document.addEventListener('pointerout', (e) => {
+        if (e.pointerType !== 'mouse') return;
         const card = e.target.closest('.event-card');
         if (card && !card.contains(e.relatedTarget)) resetCard(card);
     });
@@ -541,6 +573,17 @@ document.addEventListener('click', async (e) => {
         const myPct = Math.round(((rotX + 10) / 20) * 100) + '%';
 
         document.querySelectorAll('.event-card').forEach(card => {
+            // Mobil preview: rotasyonu wrapper'a uygula — clone flat kalır,
+            // card-rotator'ı döndürme (hit-test bozulur).
+            const wrapper = card.closest('.card-tilt-wrapper');
+            if (wrapper) {
+                wrapper.style.transform = `perspective(600px) rotateX(${rotX.toFixed(2)}deg) rotateY(${rotY.toFixed(2)}deg)`;
+                card.style.setProperty('--mx', mxPct);
+                card.style.setProperty('--my', myPct);
+                card.style.setProperty('--shine-o', '0.55');
+                return;
+            }
+
             const rotator = card.querySelector('.card-rotator');
             if (!rotator) return;
             rotator.style.transform = `perspective(600px) rotateX(${rotX.toFixed(2)}deg) rotateY(${rotY.toFixed(2)}deg)`;
