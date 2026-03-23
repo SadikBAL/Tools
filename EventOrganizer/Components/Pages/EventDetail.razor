@@ -33,8 +33,10 @@ else
     <div class="cards-grid" id="cardsGrid">
         <EventCard Event="_event" Index="1" SetName="EventOrganizer"
                    CurrentUserId="@_currentUserId"
+                   CurrentUserName="@_currentUserName"
+                   CurrentUserPicture="@_currentUserPicture"
                    OnDelete="DeleteEvent"
-                   OnJoin="JoinEvent"
+                   OnJoin="HandleJoinNotify"
                    OnLeave="LeaveEvent" />
     </div>
 }
@@ -82,22 +84,7 @@ else
         }
     }
 
-    private async Task JoinEvent(string eventId)
-    {
-        var participant = new Participant
-        {
-            UserId     = _currentUserId,
-            Name       = _currentUserName,
-            PictureUrl = _currentUserPicture,
-        };
-        await FirestoreService.JoinEventAsync(eventId, participant);
-
-        if (_event != null)
-        {
-            _event.Participants.Add(participant);
-            _event.ParticipantIds.Add(_currentUserId);
-        }
-    }
+    private Task HandleJoinNotify(string eventId) => Task.CompletedTask;
 
     private async Task LeaveEvent(string eventId)
     {

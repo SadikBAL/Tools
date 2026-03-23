@@ -4,10 +4,12 @@
 @using System.Text.Json
 
 @code {
-    [Parameter, EditorRequired] public EventItem Event          { get; set; } = default!;
-    [Parameter]                 public string   SetName         { get; set; } = "EventOrganizer";
-    [Parameter]                 public int      Index           { get; set; }
-    [Parameter]                 public string   CurrentUserId   { get; set; } = "";
+    [Parameter, EditorRequired] public EventItem Event              { get; set; } = default!;
+    [Parameter]                 public string   SetName             { get; set; } = "EventOrganizer";
+    [Parameter]                 public int      Index               { get; set; }
+    [Parameter]                 public string   CurrentUserId       { get; set; } = "";
+    [Parameter]                 public string   CurrentUserName     { get; set; } = "";
+    [Parameter]                 public string   CurrentUserPicture  { get; set; } = "";
     [Parameter]                 public EventCallback<string> OnDelete { get; set; }
     [Parameter]                 public EventCallback<string> OnJoin   { get; set; }
     [Parameter]                 public EventCallback<string> OnLeave  { get; set; }
@@ -77,17 +79,50 @@
     private string ParticipantsJson => JsonSerializer.Serialize(
         Event.Participants.Select(p => new { userId = p.UserId, name = p.Name, pictureUrl = p.PictureUrl }));
 
-    private bool IsOwner      => !string.IsNullOrEmpty(CurrentUserId) && Event.CreatedByUserId == CurrentUserId;
+    // Kapasiteye göre slot boyutu — kartın arkasına sığdır
+    private string SlotSize => Event.Capacity switch
+    {
+        <= 20 => "44px",
+        <= 30 => "36px",
+        <= 42 => "32px",
+        <= 63 => "24px",
+        _     => "20px"
+    };
+
+    private bool IsOwner       => !string.IsNullOrEmpty(CurrentUserId) && Event.CreatedByUserId == CurrentUserId;
     private bool IsParticipant => !string.IsNullOrEmpty(CurrentUserId) && Event.ParticipantIds.Contains(CurrentUserId);
-    private bool IsFull       => Event.Participants.Count >= Event.Capacity;
-    private bool ShowDelete   => IsOwner && OnDelete.HasDelegate;
-    private bool ShowLeave    => !IsOwner && IsParticipant && OnLeave.HasDelegate;
-    private bool ShowJoin     => !string.IsNullOrEmpty(CurrentUserId) && !IsOwner && !IsParticipant && !IsFull && OnJoin.HasDelegate;
-    private bool ShowFull     => !IsOwner && !IsParticipant && IsFull;
+    private bool IsFull        => Event.Participants.Count >= Event.Capacity;
+    private bool ShowDelete    => IsOwner && OnDelete.HasDelegate;
+    private bool ShowLeave     => !IsOwner && IsParticipant && OnLeave.HasDelegate;
+    private bool ShowJoin      => !string.IsNullOrEmpty(CurrentUserId) && !IsOwner && !IsParticipant && !IsFull && OnJoin.HasDelegate;
+    private bool ShowFull      => !IsOwner && !IsParticipant && IsFull;
+    private bool ShowMoveSlot  => IsParticipant;
+
+    // Katılımcıları SlotIndex'e göre diziye yerleştirir; SlotIndex'siz eski kayıtlar sırayla doldurulur
+    private Participant?[] GetSlots()
+    {
+        var slots      = new Participant?[Event.Capacity];
+        var unassigned = new Queue<Participant>();
+
+        foreach (var p in Event.Participants)
+        {
+            var idx = p.SlotIndex;
+            if (idx.HasValue && idx.Value >= 0 && idx.Value < Event.Capacity && slots[idx.Value] == null)
+                slots[idx.Value] = p;
+            else
+                unassigned.Enqueue(p);
+        }
+
+        for (int i = 0; i < Event.Capacity && unassigned.Count > 0; i++)
+            if (slots[i] == null)
+                slots[i] = unassigned.Dequeue();
+
+        return slots;
+    }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (firstRender && (ShowDelete || ShowJoin || ShowLeave) && !string.IsNullOrEmpty(Event.Id))
+        if (firstRender && (ShowDelete || ShowJoin || ShowLeave || ShowMoveSlot) && !string.IsNullOrEmpty(Event.Id))
         {
             _dotNetRef = DotNetObjectReference.Create(this);
             await JS.InvokeVoidAsync("registerCard", Event.Id, _dotNetRef);
@@ -95,8 +130,41 @@
     }
 
     [JSInvokable] public async Task ConfirmAndDelete() => await OnDelete.InvokeAsync(Event.Id);
-    [JSInvokable] public async Task ConfirmJoin()      => await OnJoin.InvokeAsync(Event.Id);
     [JSInvokable] public async Task ConfirmLeave()     => await OnLeave.InvokeAsync(Event.Id);
+
+    [JSInvokable]
+    public async Task ConfirmJoinSlot(int slotIndex)
+    {
+        if (!ShowJoin) return;
+        var slots = GetSlots();
+        if (slotIndex < 0 || slotIndex >= Event.Capacity || slots[slotIndex] != null) return;
+
+        var participant = new Participant
+        {
+            UserId     = CurrentUserId,
+            Name       = CurrentUserName,
+            PictureUrl = CurrentUserPicture,
+            SlotIndex  = slotIndex,
+        };
+        await FirestoreService.JoinEventAsync(Event.Id, participant);
+        Event.Participants.Add(participant);
+        Event.ParticipantIds.Add(CurrentUserId);
+        await InvokeAsync(StateHasChanged);
+        await OnJoin.InvokeAsync(Event.Id);
+    }
+
+    [JSInvokable]
+    public async Task ConfirmMoveSlot(int slotIndex)
+    {
+        if (!ShowMoveSlot) return;
+        var slots = GetSlots();
+        if (slotIndex < 0 || slotIndex >= Event.Capacity || slots[slotIndex] != null) return;
+
+        await FirestoreService.MoveSlotAsync(Event.Id, CurrentUserId, slotIndex);
+        var p = Event.Participants.FirstOrDefault(p => p.UserId == CurrentUserId);
+        if (p != null) p.SlotIndex = slotIndex;
+        await InvokeAsync(StateHasChanged);
+    }
 
     [JSInvokable]
     public async Task<bool> KickParticipant(string userId)
@@ -122,14 +190,24 @@
 }
 
 <div class="event-card @Event.Category" data-date="@DateAttr">
-    <div class="card-translater"><div class="card-rotator"><div class="card-front">
+    <div class="card-translater"><div class="card-rotator"><div class="card-flipper">
+
+    <div class="card-front">
 
         <div class="card-title">@Event.Title</div>
-        <button class="card-share-btn" data-event-id="@Event.Id" data-event-title="@Event.Title" title="Paylaş">
-            <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" fill="currentColor" viewBox="0 0 16 16">
-                <path d="M11 2.5a2.5 2.5 0 1 1 .603 1.628l-6.718 3.12a2.499 2.499 0 0 1 0 1.504l6.718 3.12a2.5 2.5 0 1 1-.488.876l-6.718-3.12a2.5 2.5 0 1 1 0-3.256l6.718-3.12A2.5 2.5 0 0 1 11 2.5z"/>
-            </svg>
-        </button>
+        <div class="card-top-actions">
+            <button class="card-share-btn" data-event-id="@Event.Id" data-event-title="@Event.Title" title="Paylaş">
+                <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" fill="currentColor" viewBox="0 0 16 16">
+                    <path d="M11 2.5a2.5 2.5 0 1 1 .603 1.628l-6.718 3.12a2.499 2.499 0 0 1 0 1.504l6.718 3.12a2.5 2.5 0 1 1-.488.876l-6.718-3.12a2.5 2.5 0 1 1 0-3.256l6.718-3.12A2.5 2.5 0 0 1 11 2.5z"/>
+                </svg>
+            </button>
+            <button class="card-flip-btn" title="Kartı çevir">
+                <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" fill="currentColor" viewBox="0 0 16 16">
+                    <path fill-rule="evenodd" d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2v1z"/>
+                    <path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466z"/>
+                </svg>
+            </button>
+        </div>
 
         <div class="card-image">
             <img src="@ImageSrc" alt="@Event.Title" />
@@ -220,6 +298,81 @@
 
         <div class="card-shine"></div>
         <div class="card-glare"></div>
+
+    </div>
+
+    <div class="card-back">
+
+        <div class="card-back-header">
+            <span class="card-back-label">KATILIMCIlar</span>
+            <span class="card-back-capacity-badge">@Event.Participants.Count/@Event.Capacity</span>
+            <button class="card-flip-btn card-flip-btn-back" title="Geri dön">
+                <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" fill="currentColor" viewBox="0 0 16 16">
+                    <path fill-rule="evenodd" d="M8 3a5 5 0 1 1-4.546 2.914.5.5 0 0 0-.908-.417A6 6 0 1 0 8 2v1z"/>
+                    <path d="M8 4.466V.534a.25.25 0 0 0-.41-.192L5.23 2.308c-.12.1-.12.284 0 .384l2.36 1.966A.25.25 0 0 0 8 4.466z"/>
+                </svg>
+            </button>
+        </div>
+
+        <div class="card-slots-grid" style="--slot-size: @SlotSize">
+            @{ var slots = GetSlots(); }
+            @for (int i = 0; i < Event.Capacity; i++)
+            {
+                var slotP = slots[i];
+                if (slotP != null)
+                {
+                    var p = slotP;
+                    var isSelf = p.UserId == CurrentUserId;
+                    <div class="card-slot card-slot-filled @(isSelf ? "card-slot-self" : "")" title="@p.Name">
+                        @if (!string.IsNullOrEmpty(p.PictureUrl))
+                        {
+                            <img src="@p.PictureUrl" referrerpolicy="no-referrer" alt="@p.Name" />
+                        }
+                        else
+                        {
+                            <span class="slot-initial">@(p.Name.Length > 0 ? p.Name[0].ToString().ToUpper() : "?")</span>
+                        }
+                    </div>
+                }
+                else if (ShowJoin)
+                {
+                    <button class="card-slot card-slot-empty card-slot-joinable card-action-btn"
+                            data-event-id="@Event.Id"
+                            data-action="join-slot"
+                            data-slot-index="@i"
+                            title="Katıl">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="currentColor" viewBox="0 0 16 16">
+                            <path d="M8 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm2-3a2 2 0 1 1-4 0 2 2 0 0 1 4 0zm4 8c0 1-1 1-1 1H3s-1 0-1-1 1-4 6-4 6 3 6 4zm-1-.004c-.001-.246-.154-.986-.832-1.664C11.516 10.68 10.289 10 8 10c-2.29 0-3.516.68-4.168 1.332-.678.678-.83 1.418-.832 1.664h10z"/>
+                        </svg>
+                    </button>
+                }
+                else if (ShowMoveSlot)
+                {
+                    <button class="card-slot card-slot-empty card-slot-moveable card-action-btn"
+                            data-event-id="@Event.Id"
+                            data-action="move-slot"
+                            data-slot-index="@i"
+                            title="Bu konuma geç">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="currentColor" viewBox="0 0 16 16">
+                            <path d="M8 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm2-3a2 2 0 1 1-4 0 2 2 0 0 1 4 0zm4 8c0 1-1 1-1 1H3s-1 0-1-1 1-4 6-4 6 3 6 4zm-1-.004c-.001-.246-.154-.986-.832-1.664C11.516 10.68 10.289 10 8 10c-2.29 0-3.516.68-4.168 1.332-.678.678-.83 1.418-.832 1.664h10z"/>
+                        </svg>
+                    </button>
+                }
+                else
+                {
+                    <div class="card-slot card-slot-empty">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="currentColor" viewBox="0 0 16 16">
+                            <path d="M8 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm2-3a2 2 0 1 1-4 0 2 2 0 0 1 4 0zm4 8c0 1-1 1-1 1H3s-1 0-1-1 1-4 6-4 6 3 6 4zm-1-.004c-.001-.246-.154-.986-.832-1.664C11.516 10.68 10.289 10 8 10c-2.29 0-3.516.68-4.168 1.332-.678.678-.83 1.418-.832 1.664h10z"/>
+                        </svg>
+                    </div>
+                }
+            }
+        </div>
+
+        <div class="card-shine"></div>
+        <div class="card-glare"></div>
+
+    </div>
 
     </div></div></div>
 </div>

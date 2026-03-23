@@ -13,4 +13,7 @@ public class Participant
 
     [FirestoreProperty("name")]
     public string Name { get; set; } = "";
+
+    [FirestoreProperty("slotIndex")]
+    public int? SlotIndex { get; set; }
 }

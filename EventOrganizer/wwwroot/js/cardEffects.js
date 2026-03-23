@@ -323,19 +323,35 @@ document.addEventListener('click', async (e) => {
     const action  = btn.dataset.action;
     if (!eventId || !action) return;
 
+    // Ön yüzdeki "Gir" butonu → kart arkasını aç, oradan katıl
+    if (action === 'join' && btn.classList.contains('card-join-btn')) {
+        const card = btn.closest('.event-card');
+        card?.querySelector('.card-flip-btn:not(.card-flip-btn-back)')?.click();
+        return;
+    }
+
     if (_pendingActions.has(eventId)) return;
 
     const ref = window._cardRefs?.[eventId];
     if (!ref) return;
 
     _pendingActions.add(eventId);
-    document.querySelectorAll(`[data-event-id="${eventId}"].card-action-btn`).forEach(b => b.disabled = true);
+    btn.disabled = true;
 
     try {
-        if (action === 'join')  await ref.invokeMethodAsync('ConfirmJoin');
-        if (action === 'leave') await ref.invokeMethodAsync('ConfirmLeave');
+        if (action === 'join-slot') {
+            const slotIndex = parseInt(btn.dataset.slotIndex, 10);
+            if (!isNaN(slotIndex)) await ref.invokeMethodAsync('ConfirmJoinSlot', slotIndex);
+        } else if (action === 'move-slot') {
+            const slotIndex = parseInt(btn.dataset.slotIndex, 10);
+            if (!isNaN(slotIndex)) await ref.invokeMethodAsync('ConfirmMoveSlot', slotIndex);
+        } else if (action === 'leave') {
+            await ref.invokeMethodAsync('ConfirmLeave');
+        }
     } finally {
         _pendingActions.delete(eventId);
+        // Blazor DOM güncellemesi gelmeden önce buton disabled kalmasın
+        if (btn.isConnected) btn.disabled = false;
     }
 
     // Blazor'un yeniden render etmesini bekle, sonra sadece değişen parçaları güncelle
@@ -360,6 +376,7 @@ document.addEventListener('click', async (e) => {
         sync('.capacity-count');
         sync('.participant-avatars');
         sync('.card-footer');
+        sync('.card-slots-grid');
     }
 });
 
@@ -410,6 +427,14 @@ document.addEventListener('click', async (e) => {
 
         const clone = card.cloneNode(true);
 
+        // Clone, orijinalin flip state'ini taşır — display'i senkronize et
+        const cFlipper = clone.querySelector('.card-flipper');
+        const cFront   = clone.querySelector('.card-front');
+        const cBack    = clone.querySelector('.card-back');
+        const cloneFlipped = cFlipper && cFlipper.dataset.flipped === '1';
+        if (cFront) cFront.style.display = cloneFlipped ? 'none' : '';
+        if (cBack)  cBack.style.display  = cloneFlipped ? 'flex'  : 'none';
+
         // Viewport'a göre scale hesapla — ekranın %80'ini kaplasın, max 2
         const scaleW = (window.innerWidth  * 0.80) / 245;
         const scaleH = (window.innerHeight * 0.85) / 342;
@@ -425,6 +450,8 @@ document.addEventListener('click', async (e) => {
             clone.style.opacity        = '0';
             clone.style.transform      = `scale(${(scale * 0.75).toFixed(3)})`;
             clone.style.transition     = 'opacity 0.25s ease, transform 0.32s cubic-bezier(0.22,1,0.36,1)';
+
+            // Flat-mode: clone display'i zaten openPreview başında senkronize edildi
 
             const wrapper = document.createElement('div');
             wrapper.className = 'card-tilt-wrapper';
@@ -472,6 +499,7 @@ document.addEventListener('click', async (e) => {
         }
 
         overlay.addEventListener('click', (e) => {
+            if (e.target.closest('.card-flip-btn, .card-action-btn, .card-share-btn')) return;
             if (!isInsideCard(e.clientX, e.clientY)) close();
         });
 
@@ -479,6 +507,7 @@ document.addEventListener('click', async (e) => {
         overlay.addEventListener('touchend', (e) => {
             const t = e.changedTouches[0];
             if (!t) return;
+            if (e.target.closest('.card-flip-btn, .card-action-btn, .card-share-btn')) return;
             if (!isInsideCard(t.clientX, t.clientY)) {
                 e.preventDefault();
                 close();
@@ -489,12 +518,67 @@ document.addEventListener('click', async (e) => {
         document.addEventListener('keydown', onKey);
     }
 
+    /* ---- Flip button handler ---- */
+    const FLIP_HALF = 260; // ms — animasyonun yarısı
+
+    document.addEventListener('click', (e) => {
+        const btn = e.target.closest('.card-flip-btn');
+        if (!btn) return;
+        e.stopPropagation();
+
+        const card    = btn.closest('.event-card');
+        if (!card) return;
+        const flipper = card.querySelector('.card-flipper');
+        if (!flipper) return;
+        const front   = card.querySelector('.card-front');
+        const back    = card.querySelector('.card-back');
+        if (!front || !back) return;
+
+        // Animasyon sırasında tekrar tıklamayı engelle
+        if (flipper.dataset.animating) return;
+        flipper.dataset.animating = '1';
+
+        const nextFlipped = flipper.dataset.flipped !== '1';
+
+        // Flat-mode (mobil preview): animasyon yok, direkt swap
+        if (card.style.transformStyle === 'flat') {
+            front.style.display = nextFlipped ? 'none' : '';
+            back.style.display  = nextFlipped ? 'flex' : 'none';
+            flipper.dataset.flipped   = nextFlipped ? '1' : '';
+            delete flipper.dataset.animating;
+            return;
+        }
+
+        // Hover tilt'i sıfırla — flip animasyonuyla çakışmasın
+        const rotator = card.querySelector('.card-rotator');
+        if (rotator) rotator.style.transform = '';
+
+        // 1. yarı: mevcut yüzü kenara döndür (edge-on)
+        flipper.style.animation = `cardFlipHalf1 ${FLIP_HALF}ms ease-in forwards`;
+
+        setTimeout(() => {
+            // Ortada yüzleri değiştir
+            front.style.display = nextFlipped ? 'none' : '';
+            back.style.display  = nextFlipped ? 'flex' : 'none';
+
+            // 2. yarı: yeni yüzü karşıdan getir
+            flipper.style.animation = `cardFlipHalf2 ${FLIP_HALF}ms ease-out forwards`;
+
+            setTimeout(() => {
+                flipper.style.animation  = '';
+                flipper.dataset.flipped  = nextFlipped ? '1' : '';
+                delete flipper.dataset.animating;
+            }, FLIP_HALF);
+        }, FLIP_HALF);
+    });
+
     document.addEventListener('click', (e) => {
         if (e.target.closest('.card-overlay')) return;
         if (e.target.closest('.card-delete-btn'))      return;
         if (e.target.closest('.card-edit-btn'))        return;
         if (e.target.closest('.card-action-btn'))      return;
         if (e.target.closest('.card-share-btn'))       return;
+        if (e.target.closest('.card-flip-btn'))        return;
         if (e.target.closest('.participant-avatars'))  return;
         if (e.target.closest('.card-location-text')) return;
         if (e.target.closest('.card-date-link'))     return;
@@ -547,6 +631,48 @@ document.addEventListener('click', async (e) => {
         const card = e.target.closest('.event-card');
         if (card && !card.contains(e.relatedTarget)) resetCard(card);
     });
+})();
+
+/* ---- Card back slots drag-to-scroll ---- */
+(function () {
+    let drag = null;
+    const THRESHOLD = 6; // px — bu kadar hareket etmeden capture alma, tap/click çalışsın
+
+    document.addEventListener('pointerdown', (e) => {
+        const grid = e.target.closest('.card-slots-grid');
+        if (!grid) return;
+        // Tıklanabilir slot butonuna basıldıysa drag başlatma — click çalışsın
+        if (e.target.closest('.card-slot-joinable, .card-slot-moveable')) return;
+        // Sadece bekle — henüz capture alma, click'i bozmasın
+        drag = { grid, startY: e.clientY, startScroll: grid.scrollTop, id: e.pointerId, active: false };
+    });
+
+    document.addEventListener('pointermove', (e) => {
+        if (!drag || drag.id !== e.pointerId) return;
+
+        const moved = Math.abs(e.clientY - drag.startY);
+
+        // Eşiği geçince drag moduna gir ve pointer'ı yakala
+        if (!drag.active) {
+            if (moved < THRESHOLD) return;
+            drag.active = true;
+            drag.grid.setPointerCapture(e.pointerId);
+            drag.grid.classList.add('is-dragging');
+        }
+
+        e.preventDefault();
+        e.stopPropagation();
+        drag.grid.scrollTop = drag.startScroll - (e.clientY - drag.startY);
+    }, { passive: false });
+
+    function endDrag(e) {
+        if (!drag || drag.id !== e.pointerId) return;
+        drag.grid.classList.remove('is-dragging');
+        drag = null;
+    }
+
+    document.addEventListener('pointerup',     endDrag);
+    document.addEventListener('pointercancel', endDrag);
 })();
 
 /* ---- Gyroscope 3D tilt (sadece mobil/dokunmatik cihazlar) ---- */

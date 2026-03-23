@@ -46,8 +46,10 @@ else
             {
                 <EventCard Event="evt" Index="i" SetName="EventOrganizer"
                            CurrentUserId="@_currentUserId"
+                           CurrentUserName="@_currentUserName"
+                           CurrentUserPicture="@_currentUserPicture"
                            OnDelete="DeleteEvent"
-                           OnJoin="JoinEvent"
+                           OnJoin="HandleJoinNotify"
                            OnLeave="LeaveEvent" />
             }
         }
@@ -96,23 +98,9 @@ else
         }
     }
 
-    private async Task JoinEvent(string eventId)
-    {
-        var participant = new Participant
-        {
-            UserId     = _currentUserId,
-            Name       = _currentUserName,
-            PictureUrl = _currentUserPicture,
-        };
-        await FirestoreService.JoinEventAsync(eventId, participant);
-
-        var evt = _events.FirstOrDefault(e => e.Id == eventId);
-        if (evt != null)
-        {
-            evt.Participants.Add(participant);
-            evt.ParticipantIds.Add(_currentUserId);
-        }
-    }
+    // EventCard join'i kendi içinde Firestore'a yazar; bu callback yalnızca
+    // parent'ın state'ini (Blazor filter, re-render) senkronize eder.
+    private Task HandleJoinNotify(string eventId) => Task.CompletedTask;
 
     private async Task LeaveEvent(string eventId)
     {

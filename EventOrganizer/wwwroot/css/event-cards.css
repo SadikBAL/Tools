@@ -920,14 +920,21 @@
     border-color: #5a9e6f;
 }
 
-/* ---- Share button ---- */
-.card-share-btn {
+/* ---- Top-right action buttons container ---- */
+.card-top-actions {
     position: absolute;
     top: 9px;
     right: 11px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    z-index: 6;
+}
+
+/* ---- Share button ---- */
+.card-share-btn {
     width: 22px;
     height: 22px;
-    z-index: 5;
     background: transparent;
     border: 1px solid rgba(255, 255, 255, 0.15);
     border-radius: 6px;
@@ -938,6 +945,7 @@
     cursor: pointer;
     transition: border-color 0.2s, color 0.2s, background 0.2s;
     padding: 0;
+    flex-shrink: 0;
 }
 .card-share-btn:hover {
     border-color: rgba(192, 132, 252, 0.6);
@@ -981,7 +989,7 @@
     position: absolute;
     top: 9px;
     left: 11px;
-    right: 40px;
+    right: 68px;
     font-size: 11px;
     font-weight: 800;
     color: #fff;
@@ -997,7 +1005,7 @@
 /* ---- Card image area ---- */
 .card-image {
     position: absolute;
-    top: 30px;
+    top: 34px;
     left: 9px;
     right: 9px;
     height: 148px;
@@ -1433,6 +1441,7 @@
 .card-delete-btn,
 .card-edit-btn,
 .card-share-btn,
+.card-flip-btn,
 .card-location-text,
 .card-date-link,
 .participant-avatars {
@@ -1441,7 +1450,8 @@
 
 /* Preview overlay içindeki kartı touch için tüm pointer events açık tut */
 .card-overlay .event-card,
-.card-overlay .card-front {
+.card-overlay .card-front,
+.card-overlay .card-back {
     touch-action: manipulation;
 }
 
@@ -1452,6 +1462,226 @@
     justify-content: center;
 }
 
+/* ---- Card Flip ---- */
+.card-translater,
+.card-rotator {
+    transform-style: preserve-3d;
+}
+
+.card-flipper {
+    position: relative;
+    width: 100%;
+    height: 100%;
+}
+
+@keyframes cardFlipHalf1 {
+    from { transform: perspective(800px) rotateY(0deg); }
+    to   { transform: perspective(800px) rotateY(-90deg); }
+}
+@keyframes cardFlipHalf2 {
+    from { transform: perspective(800px) rotateY(90deg); }
+    to   { transform: perspective(800px) rotateY(0deg); }
+}
+
+/* ---- Card Back ---- */
+.card-back {
+    position: absolute;
+    inset: 0;
+    border-radius: 13px;
+    border: 3px solid #d4af37;
+    background: linear-gradient(160deg, #0d1220 0%, #121a35 40%, #0a1e40 100%);
+    box-shadow: inset 0 0 0 2px rgba(212, 175, 55, 0.25);
+    display: none; /* JS flip handler açar */
+    flex-direction: column;
+    overflow: hidden;
+    padding: 10px;
+    gap: 8px;
+}
+
+.event-card.music  .card-back { background: linear-gradient(160deg, #1a1228 0%, #221535 40%, #291a47 100%); border-color: #9b7ec8; }
+.event-card.tech   .card-back { background: linear-gradient(160deg, #0d1a22 0%, #101e2a 40%, #122030 100%); border-color: #5a9ab5; }
+.event-card.art    .card-back { background: linear-gradient(160deg, #201508 0%, #281808 40%, #30200d 100%); border-color: #c4834a; }
+.event-card.sport  .card-back { background: linear-gradient(160deg, #0d1a10 0%, #101f12 40%, #12261a 100%); border-color: #5a9e6f; }
+
+/* ---- Card Back Header ---- */
+.card-back-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+    flex-shrink: 0;
+}
+
+.card-back-label {
+    font-size: 8px;
+    font-weight: 800;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.35);
+    font-family: 'JetBrains Mono', monospace;
+    flex: 1;
+}
+
+.card-back-capacity-badge {
+    font-size: 9px;
+    font-weight: 700;
+    color: var(--cat-color, rgba(167, 139, 250, 0.75));
+    font-family: 'JetBrains Mono', monospace;
+    background: var(--cat-bg, rgba(124, 58, 237, 0.12));
+    border: 1px solid var(--cat-border, rgba(124, 58, 237, 0.22));
+    border-radius: 8px;
+    padding: 2px 7px;
+}
+
+/* Kategori renk değişkenleri */
+.event-card.music { --cat-color: rgba(167, 139, 250, 0.85); --cat-bg: rgba(124,58,237,0.12); --cat-border: rgba(124,58,237,0.25); }
+.event-card.tech  { --cat-color: rgba(90, 154, 181, 0.85);  --cat-bg: rgba(90,154,181,0.10); --cat-border: rgba(90,154,181,0.25); }
+.event-card.art   { --cat-color: rgba(196, 131, 74, 0.85);  --cat-bg: rgba(196,131,74,0.10); --cat-border: rgba(196,131,74,0.25); }
+.event-card.sport { --cat-color: rgba(90, 158, 111, 0.85);  --cat-bg: rgba(90,158,111,0.10); --cat-border: rgba(90,158,111,0.25); }
+
+/* ---- Flip Button ---- */
+.card-flip-btn {
+    width: 22px;
+    height: 22px;
+    flex-shrink: 0;
+    background: transparent;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 6px;
+    color: rgba(255, 255, 255, 0.35);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s, color 0.15s;
+    touch-action: manipulation;
+    padding: 0;
+}
+
+.card-flip-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+    border-color: rgba(255, 255, 255, 0.35);
+    color: rgba(255, 255, 255, 0.85);
+}
+
+.card-flip-btn-back {
+    width: 20px;
+    height: 20px;
+}
+
+/* ---- Capacity Slots Grid ---- */
+.card-slots-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, var(--slot-size, 32px));
+    gap: 5px;
+    overflow-y: scroll;
+    justify-content: center;
+    align-content: center;
+    flex: 1;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    cursor: grab;
+    user-select: none;
+    -webkit-user-select: none;
+    touch-action: none;
+}
+
+.card-slots-grid::-webkit-scrollbar { display: none; }
+
+.card-slots-grid.is-dragging { cursor: grabbing; }
+
+.card-slot {
+    width: var(--slot-size, 32px);
+    height: var(--slot-size, 32px);
+    flex-shrink: 0;
+    border-radius: 7px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    box-sizing: border-box;
+}
+
+.card-slot-filled {
+    background: rgba(124, 58, 237, 0.18);
+    border: 1px solid rgba(124, 58, 237, 0.35);
+}
+
+.card-slot-filled img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+.slot-initial {
+    font-size: calc(var(--slot-size, 32px) * 0.38);
+    font-weight: 700;
+    color: rgba(255, 255, 255, 0.85);
+    font-family: 'JetBrains Mono', monospace;
+    line-height: 1;
+}
+
+.card-slot-empty {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px dashed rgba(255, 255, 255, 0.12);
+    color: rgba(255, 255, 255, 0.18);
+}
+
+.card-slot-joinable {
+    background: rgba(0, 180, 216, 0.06);
+    border: 1px dashed rgba(0, 180, 216, 0.35);
+    color: rgba(0, 180, 216, 0.5);
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s, color 0.15s, transform 0.12s;
+    touch-action: manipulation;
+}
+
+.card-slot-joinable:hover:not(:disabled) {
+    background: rgba(0, 180, 216, 0.16);
+    border-color: rgba(0, 180, 216, 0.7);
+    color: rgba(0, 180, 216, 0.9);
+    transform: scale(1.08);
+}
+
+.card-slot svg {
+    width: calc(var(--slot-size, 32px) * 0.45);
+    height: calc(var(--slot-size, 32px) * 0.45);
+    flex-shrink: 0;
+}
+
+.card-slot-joinable:disabled {
+    opacity: 0.4;
+    cursor: default;
+}
+
+.card-slot-moveable {
+    background: rgba(167, 139, 250, 0.06);
+    border: 1px dashed rgba(167, 139, 250, 0.30);
+    color: rgba(167, 139, 250, 0.4);
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s, color 0.15s, transform 0.12s;
+    touch-action: manipulation;
+}
+
+.card-slot-moveable:hover:not(:disabled) {
+    background: rgba(167, 139, 250, 0.15);
+    border-color: rgba(167, 139, 250, 0.65);
+    color: rgba(167, 139, 250, 0.9);
+    transform: scale(1.08);
+}
+
+.card-slot-moveable:disabled {
+    opacity: 0.4;
+    cursor: default;
+}
+
+/* Kullanıcının kendi slotu — altın kenarlık (inset: taşmaz) */
+.card-slot-self {
+    box-shadow: inset 0 0 0 2px rgba(212, 175, 55, 0.8);
+}
+
+/* Mobile: enlarge flip button hit area */
 /* ---- Mobile responsive ---- */
 @media (max-width: 600px) {
     .filters-row {
@@ -1488,7 +1718,8 @@
         width: 36px !important;
         height: 36px !important;
     }
-    .event-card .card-share-btn {
+    .event-card .card-share-btn,
+    .event-card .card-flip-btn:not(.card-flip-btn-back) {
         width: 30px !important;
         height: 30px !important;
     }

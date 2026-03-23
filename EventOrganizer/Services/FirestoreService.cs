@@ -98,6 +98,11 @@ public class FirestoreService
             var evt  = snap.ConvertTo<EventItem>();
             if (!evt.ParticipantIds.Contains(participant.UserId) && evt.Participants.Count < evt.Capacity)
             {
+                // Hedef slot doluysa iptal et
+                if (participant.SlotIndex.HasValue &&
+                    evt.Participants.Any(p => p.SlotIndex == participant.SlotIndex))
+                    return;
+
                 evt.Participants.Add(participant);
                 evt.ParticipantIds.Add(participant.UserId);
                 transaction.Update(docRef, new Dictionary<string, object>
@@ -106,6 +111,25 @@ public class FirestoreService
                     ["participantIds"] = evt.ParticipantIds,
                 });
             }
+        });
+    });
+
+    public Task MoveSlotAsync(string eventId, string userId, int newSlotIndex) => WithRetry(async () =>
+    {
+        var docRef = _db.Collection("events").Document(eventId);
+        await _db.RunTransactionAsync(async transaction =>
+        {
+            var snap = await transaction.GetSnapshotAsync(docRef);
+            var evt  = snap.ConvertTo<EventItem>();
+            if (evt.Participants.Any(p => p.SlotIndex == newSlotIndex))
+                return; // hedef slot dolu
+            var p = evt.Participants.FirstOrDefault(p => p.UserId == userId);
+            if (p == null) return;
+            p.SlotIndex = newSlotIndex;
+            transaction.Update(docRef, new Dictionary<string, object>
+            {
+                ["participants"] = evt.Participants,
+            });
         });
     });
 
