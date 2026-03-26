@@ -1,0 +1,311 @@
+@page "/create-template"
+@rendermode InteractiveServer
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@inject FirestoreService FirestoreService
+@inject StorageService StorageService
+@inject AuthenticationStateProvider AuthStateProvider
+@inject NavigationManager Navigation
+
+<PageTitle>Template Oluştur</PageTitle>
+
+<div class="create-page">
+    <div class="create-card" style="max-width:680px">
+        <div class="create-card-header">
+            <span class="create-card-title">YENİ TEMPLATE</span>
+        </div>
+
+        <div class="create-form">
+
+            <!-- Ad & Kategori -->
+            <div class="form-row-half">
+                <div class="form-row">
+                    <label>Template Adı</label>
+                    <input @bind="_name" placeholder="Halı Saha 7v7" />
+                </div>
+                <div class="form-row">
+                    <label>Kategori</label>
+                    <select @bind="_category" class="form-select-dark">
+                        <option value="music">🎵 Müzik</option>
+                        <option value="tech">💻 Teknoloji</option>
+                        <option value="art">🎨 Sanat</option>
+                        <option value="sport">⚽ Spor</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Arka Plan Görseli -->
+            <div class="form-row">
+                <label>Arka Plan <span class="form-optional">(opsiyonel, PNG)</span></label>
+                <InputFile OnChange="OnImageSelected" accept="image/png" id="bgFile" style="display:none" />
+                <label for="bgFile" class="file-upload-btn">
+                    @if (_bgFileName != null)
+                    { <span>📎 @_bgFileName</span> }
+                    else
+                    { <span>📁 PNG seç...</span> }
+                </label>
+                @if (_bgPreviewUrl != null)
+                {
+                    <div class="svg-preview-wrap">
+                        <img src="@_bgPreviewUrl" class="svg-preview-img" alt="Önizleme" />
+                    </div>
+                }
+            </div>
+
+            <!-- Grid boyutu -->
+            <div class="form-row">
+                <label>Grid Boyutu</label>
+                <div class="tpl-dim-row">
+                    <div class="form-row" style="flex:1">
+                        <span class="tpl-dim-label">Satır</span>
+                        <input type="number" @bind="_rows" min="1" max="10" class="tpl-dim-input" />
+                    </div>
+                    <span class="tpl-dim-sep">×</span>
+                    <div class="form-row" style="flex:1">
+                        <span class="tpl-dim-label">Sütun</span>
+                        <input type="number" @bind="_cols" min="1" max="12" class="tpl-dim-input" />
+                    </div>
+                    <button type="button" class="tpl-apply-btn" @onclick="ApplyGrid">Uygula</button>
+                </div>
+            </div>
+
+            <!-- Grid Editörü -->
+            @if (_grid != null)
+            {
+                <div class="form-row">
+                    <label>Aktif Slotlar — tıklayarak aç/kapat</label>
+                    <div class="tpl-grid-editor" style="grid-template-columns: repeat(@_cols, 36px)">
+                        @for (int r = 0; r < _rows; r++)
+                        {
+                            @for (int c = 0; c < _cols; c++)
+                            {
+                                var rr = r; var cc = c;
+                                <button type="button"
+                                        class="tpl-cell @(_grid[rr, cc] ? "active" : "")"
+                                        @onclick="() => ToggleCell(rr, cc)">
+                                </button>
+                            }
+                        }
+                    </div>
+                    <span class="tpl-cap-info">Kapasite: <strong>@ActiveCount</strong> kişi</span>
+                </div>
+            }
+
+            @if (!string.IsNullOrEmpty(_error))
+            {
+                <div class="form-error">@_error</div>
+            }
+
+            <button type="button" class="form-submit" @onclick="HandleSubmit" disabled="@(_submitting || _grid == null)">
+                @(_uploading ? "SVG yükleniyor..." : _submitting ? "Kaydediliyor..." : "Template Oluştur")
+            </button>
+
+        </div>
+    </div>
+</div>
+
+@code {
+    private string _name     = "";
+    private string _category = "sport";
+    private int    _rows     = 2;
+    private int    _cols     = 7;
+    private bool[,]? _grid;
+
+    private byte[]? _bgBytes;
+    private string? _bgFileName;
+    private string? _bgPreviewUrl;
+
+    private bool   _submitting;
+    private bool   _uploading;
+    private string _error = "";
+
+    private int ActiveCount => _grid == null ? 0
+        : Enumerable.Range(0, _rows).Sum(r => Enumerable.Range(0, _cols).Count(c => _grid[r, c]));
+
+    private void ApplyGrid()
+    {
+        var newGrid = new bool[_rows, _cols];
+        if (_grid != null)
+            for (int r = 0; r < Math.Min(_rows, _grid.GetLength(0)); r++)
+                for (int c = 0; c < Math.Min(_cols, _grid.GetLength(1)); c++)
+                    newGrid[r, c] = _grid[r, c];
+        // Yeni hücreler varsayılan aktif
+        for (int r = 0; r < _rows; r++)
+            for (int c = 0; c < _cols; c++)
+                if (_grid == null || r >= _grid.GetLength(0) || c >= _grid.GetLength(1))
+                    newGrid[r, c] = true;
+        _grid = newGrid;
+    }
+
+    private void ToggleCell(int r, int c)
+    {
+        if (_grid == null) return;
+        _grid[r, c] = !_grid[r, c];
+    }
+
+    private async Task OnImageSelected(InputFileChangeEventArgs e)
+    {
+        _error = "";
+        try
+        {
+            var file = e.File;
+            _bgFileName = file.Name;
+            using var stream = file.OpenReadStream(maxAllowedSize: 5 * 1024 * 1024);
+            using var ms = new MemoryStream();
+            await stream.CopyToAsync(ms);
+            _bgBytes = ms.ToArray();
+            _bgPreviewUrl = $"data:image/png;base64,{Convert.ToBase64String(_bgBytes)}";
+        }
+        catch { _error = "Görsel okunamadı."; }
+    }
+
+    private async Task HandleSubmit()
+    {
+        _error = "";
+        if (string.IsNullOrWhiteSpace(_name)) { _error = "Template adı gerekli."; return; }
+        if (_grid == null || ActiveCount == 0) { _error = "En az bir slot aktif olmalı."; return; }
+
+        _submitting = true;
+        try
+        {
+            var auth = await AuthStateProvider.GetAuthenticationStateAsync();
+            var userId = auth.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "";
+
+            string svgUrl = "";
+            if (_bgBytes != null && _bgFileName != null)
+            {
+                _uploading = true;
+                StateHasChanged();
+                using var ms = new MemoryStream(_bgBytes);
+                svgUrl = await StorageService.UploadTemplateImageAsync(ms, _bgFileName);
+                _uploading = false;
+            }
+
+            var slots = new List<TemplateSlot>();
+            for (int r = 0; r < _rows; r++)
+                for (int c = 0; c < _cols; c++)
+                    if (_grid[r, c])
+                        slots.Add(new TemplateSlot { Row = r, Col = c });
+
+            var template = new EventTemplate
+            {
+                Name            = _name.Trim(),
+                Category        = _category,
+                Capacity        = ActiveCount,
+                Rows            = _rows,
+                Cols            = _cols,
+                ActiveSlots     = slots,
+                SvgUrl          = svgUrl,
+                CreatedByUserId = userId,
+            };
+
+            await FirestoreService.CreateTemplateAsync(template);
+            Navigation.NavigateTo("/create-event");
+        }
+        catch (Exception ex)
+        {
+            _error = $"Hata: {ex.Message}";
+            _uploading = false;
+            _submitting = false;
+        }
+    }
+}
+
+<style>
+/* SVG önizleme */
+.svg-preview-wrap {
+    margin-top: 8px;
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 8px;
+    overflow: hidden;
+    background: rgba(255,255,255,0.03);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 90px;
+}
+
+.svg-preview-img {
+    height: 75px;
+    opacity: 0.75;
+    object-fit: contain;
+}
+
+/* Grid boyutu satırı */
+.tpl-dim-row {
+    display: flex;
+    gap: 10px;
+    align-items: flex-end;
+}
+
+.tpl-dim-sep {
+    color: rgba(255,255,255,0.3);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 14px;
+    padding-bottom: 9px;
+}
+
+.tpl-dim-label {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.3);
+    font-family: 'JetBrains Mono', monospace;
+}
+
+.tpl-dim-input {
+    text-align: center;
+}
+
+.tpl-apply-btn {
+    padding: 9px 18px;
+    border-radius: 10px;
+    border: 1px solid rgba(124,58,237,0.4);
+    background: rgba(124,58,237,0.12);
+    color: rgba(167,139,250,0.9);
+    font-size: 11px;
+    font-weight: 700;
+    font-family: 'JetBrains Mono', monospace;
+    cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+    margin-bottom: 1px;
+}
+.tpl-apply-btn:hover { background: rgba(124,58,237,0.22); border-color: rgba(124,58,237,0.7); }
+
+/* Grid editörü */
+.tpl-grid-editor {
+    display: grid;
+    gap: 5px;
+    padding: 12px;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 10px;
+    width: fit-content;
+}
+
+.tpl-cell {
+    width: 36px;
+    height: 36px;
+    border-radius: 7px;
+    border: 1px dashed rgba(255,255,255,0.15);
+    background: rgba(255,255,255,0.03);
+    cursor: pointer;
+    transition: all 0.12s;
+}
+.tpl-cell.active {
+    background: rgba(124,58,237,0.25);
+    border: 1px solid rgba(167,139,250,0.5);
+}
+.tpl-cell:hover { border-color: rgba(167,139,250,0.6); }
+.tpl-cell.active:hover { background: rgba(124,58,237,0.35); }
+
+.tpl-cap-info {
+    margin-top: 6px;
+    font-size: 10px;
+    color: rgba(255,255,255,0.4);
+    font-family: 'JetBrains Mono', monospace;
+}
+.tpl-cap-info strong { color: rgba(167,139,250,0.85); }
+</style>

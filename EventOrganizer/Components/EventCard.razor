@@ -15,6 +15,7 @@
     [Parameter]                 public EventCallback<string> OnLeave  { get; set; }
 
     private DotNetObjectReference<EventCard>? _dotNetRef;
+    private EventTemplate? _template;
 
     private static readonly Dictionary<string, string> CategoryLabels = new()
     {
@@ -79,15 +80,35 @@
     private string ParticipantsJson => JsonSerializer.Serialize(
         Event.Participants.Select(p => new { userId = p.UserId, name = p.Name, pictureUrl = p.PictureUrl }));
 
-    // Kapasiteye göre slot boyutu — kartın arkasına sığdır
-    private string SlotSize => Event.Capacity switch
+    // Slot boyutu: her iki boyutu da sığdıracak şekilde hesapla.
+    // Kart arka iç alanı: 245-2×3border-2×10pad = 219px geniş
+    //                     342-2×3-2×10-42header = 274px yüksek
+    private string SlotSize
     {
-        <= 20 => "44px",
-        <= 30 => "36px",
-        <= 42 => "32px",
-        <= 63 => "24px",
-        _     => "20px"
-    };
+        get
+        {
+            const int AW = 219, AH = 274, GAP = 5;
+
+            if (_template != null)
+            {
+                var fromW = (AW - (_template.Cols - 1) * GAP) / _template.Cols;
+                var fromH = (AH - (_template.Rows - 1) * GAP) / _template.Rows;
+                var px    = Math.Min(fromW, fromH);
+                return $"{Math.Max(20, Math.Min(44, px))}px";
+            }
+
+            // Düz liste: auto-fill sütun sayısını simüle ederek en büyük sığan boyutu bul
+            var cap = Event.Capacity;
+            for (var sz = 44; sz >= 20; sz--)
+            {
+                var cols  = Math.Max(1, (AW + GAP) / (sz + GAP));
+                var rows  = (int)Math.Ceiling((double)cap / cols);
+                var gridH = rows * sz + (rows - 1) * GAP;
+                if (gridH <= AH) return $"{sz}px";
+            }
+            return "20px";
+        }
+    }
 
     private bool IsOwner       => !string.IsNullOrEmpty(CurrentUserId) && Event.CreatedByUserId == CurrentUserId;
     private bool IsParticipant => !string.IsNullOrEmpty(CurrentUserId) && Event.ParticipantIds.Contains(CurrentUserId);
@@ -118,6 +139,15 @@
                 slots[i] = unassigned.Dequeue();
 
         return slots;
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!string.IsNullOrEmpty(Event.TemplateId))
+        {
+            try { _template = await FirestoreService.GetTemplateByIdAsync(Event.TemplateId); }
+            catch { }
+        }
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -314,60 +344,134 @@
             </button>
         </div>
 
-        <div class="card-slots-grid" style="--slot-size: @SlotSize">
-            @{ var slots = GetSlots(); }
-            @for (int i = 0; i < Event.Capacity; i++)
-            {
-                var slotP = slots[i];
-                if (slotP != null)
+        @{ var slots = GetSlots(); }
+
+        @if (_template != null)
+        {
+            <!-- Template tabanlı ızgara görünümü: SVG arka plan + konumlandırılmış slotlar -->
+            <div class="card-slots-grid card-slots-tpl"
+                 style="--slot-size: @SlotSize; --tpl-cols: @_template.Cols; --tpl-rows: @_template.Rows; --tpl-bg: url('@_template.SvgUrl')">
+                @for (int i = 0; i < _template.ActiveSlots.Count; i++)
                 {
-                    var p = slotP;
-                    var isSelf = p.UserId == CurrentUserId;
-                    <div class="card-slot card-slot-filled @(isSelf ? "card-slot-self" : "")" title="@p.Name">
-                        @if (!string.IsNullOrEmpty(p.PictureUrl))
-                        {
-                            <img src="@p.PictureUrl" referrerpolicy="no-referrer" alt="@p.Name" />
-                        }
-                        else
-                        {
-                            <span class="slot-initial">@(p.Name.Length > 0 ? p.Name[0].ToString().ToUpper() : "?")</span>
-                        }
-                    </div>
+                    var tslot  = _template.ActiveSlots[i];
+                    var slotP  = i < slots.Length ? slots[i] : null;
+                    var slotIdx = i;
+                    var rowCss = tslot.Row + 1;
+                    var colCss = tslot.Col + 1;
+
+                    if (slotP != null)
+                    {
+                        var p      = slotP;
+                        var isSelf = p.UserId == CurrentUserId;
+                        <div class="card-slot card-slot-filled @(isSelf ? "card-slot-self" : "")"
+                             style="grid-row: @rowCss; grid-column: @colCss"
+                             title="@p.Name">
+                            @if (!string.IsNullOrEmpty(p.PictureUrl))
+                            {
+                                <img src="@p.PictureUrl" referrerpolicy="no-referrer" alt="@p.Name" />
+                            }
+                            else
+                            {
+                                <span class="slot-initial">@(p.Name.Length > 0 ? p.Name[0].ToString().ToUpper() : "?")</span>
+                            }
+                        </div>
+                    }
+                    else if (ShowJoin)
+                    {
+                        <button class="card-slot card-slot-empty card-slot-joinable card-action-btn"
+                                style="grid-row: @rowCss; grid-column: @colCss"
+                                data-event-id="@Event.Id"
+                                data-action="join-slot"
+                                data-slot-index="@slotIdx"
+                                title="Katıl">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="currentColor" viewBox="0 0 16 16">
+                                <path d="M8 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm2-3a2 2 0 1 1-4 0 2 2 0 0 1 4 0zm4 8c0 1-1 1-1 1H3s-1 0-1-1 1-4 6-4 6 3 6 4zm-1-.004c-.001-.246-.154-.986-.832-1.664C11.516 10.68 10.289 10 8 10c-2.29 0-3.516.68-4.168 1.332-.678.678-.83 1.418-.832 1.664h10z"/>
+                            </svg>
+                        </button>
+                    }
+                    else if (ShowMoveSlot)
+                    {
+                        <button class="card-slot card-slot-empty card-slot-moveable card-action-btn"
+                                style="grid-row: @rowCss; grid-column: @colCss"
+                                data-event-id="@Event.Id"
+                                data-action="move-slot"
+                                data-slot-index="@slotIdx"
+                                title="Bu konuma geç">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="currentColor" viewBox="0 0 16 16">
+                                <path d="M8 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm2-3a2 2 0 1 1-4 0 2 2 0 0 1 4 0zm4 8c0 1-1 1-1 1H3s-1 0-1-1 1-4 6-4 6 3 6 4zm-1-.004c-.001-.246-.154-.986-.832-1.664C11.516 10.68 10.289 10 8 10c-2.29 0-3.516.68-4.168 1.332-.678.678-.83 1.418-.832 1.664h10z"/>
+                            </svg>
+                        </button>
+                    }
+                    else
+                    {
+                        <div class="card-slot card-slot-empty"
+                             style="grid-row: @rowCss; grid-column: @colCss">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="currentColor" viewBox="0 0 16 16">
+                                <path d="M8 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm2-3a2 2 0 1 1-4 0 2 2 0 0 1 4 0zm4 8c0 1-1 1-1 1H3s-1 0-1-1 1-4 6-4 6 3 6 4zm-1-.004c-.001-.246-.154-.986-.832-1.664C11.516 10.68 10.289 10 8 10c-2.29 0-3.516.68-4.168 1.332-.678.678-.83 1.418-.832 1.664h10z"/>
+                            </svg>
+                        </div>
+                    }
                 }
-                else if (ShowJoin)
+            </div>
+        }
+        else
+        {
+            <!-- Standart düz liste görünümü -->
+            <div class="card-slots-grid" style="--slot-size: @SlotSize">
+                @for (int i = 0; i < Event.Capacity; i++)
                 {
-                    <button class="card-slot card-slot-empty card-slot-joinable card-action-btn"
-                            data-event-id="@Event.Id"
-                            data-action="join-slot"
-                            data-slot-index="@i"
-                            title="Katıl">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="currentColor" viewBox="0 0 16 16">
-                            <path d="M8 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm2-3a2 2 0 1 1-4 0 2 2 0 0 1 4 0zm4 8c0 1-1 1-1 1H3s-1 0-1-1 1-4 6-4 6 3 6 4zm-1-.004c-.001-.246-.154-.986-.832-1.664C11.516 10.68 10.289 10 8 10c-2.29 0-3.516.68-4.168 1.332-.678.678-.83 1.418-.832 1.664h10z"/>
-                        </svg>
-                    </button>
+                    var slotP   = slots[i];
+                    var slotIdx = i;
+                    if (slotP != null)
+                    {
+                        var p      = slotP;
+                        var isSelf = p.UserId == CurrentUserId;
+                        <div class="card-slot card-slot-filled @(isSelf ? "card-slot-self" : "")" title="@p.Name">
+                            @if (!string.IsNullOrEmpty(p.PictureUrl))
+                            {
+                                <img src="@p.PictureUrl" referrerpolicy="no-referrer" alt="@p.Name" />
+                            }
+                            else
+                            {
+                                <span class="slot-initial">@(p.Name.Length > 0 ? p.Name[0].ToString().ToUpper() : "?")</span>
+                            }
+                        </div>
+                    }
+                    else if (ShowJoin)
+                    {
+                        <button class="card-slot card-slot-empty card-slot-joinable card-action-btn"
+                                data-event-id="@Event.Id"
+                                data-action="join-slot"
+                                data-slot-index="@slotIdx"
+                                title="Katıl">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="currentColor" viewBox="0 0 16 16">
+                                <path d="M8 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm2-3a2 2 0 1 1-4 0 2 2 0 0 1 4 0zm4 8c0 1-1 1-1 1H3s-1 0-1-1 1-4 6-4 6 3 6 4zm-1-.004c-.001-.246-.154-.986-.832-1.664C11.516 10.68 10.289 10 8 10c-2.29 0-3.516.68-4.168 1.332-.678.678-.83 1.418-.832 1.664h10z"/>
+                            </svg>
+                        </button>
+                    }
+                    else if (ShowMoveSlot)
+                    {
+                        <button class="card-slot card-slot-empty card-slot-moveable card-action-btn"
+                                data-event-id="@Event.Id"
+                                data-action="move-slot"
+                                data-slot-index="@slotIdx"
+                                title="Bu konuma geç">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="currentColor" viewBox="0 0 16 16">
+                                <path d="M8 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm2-3a2 2 0 1 1-4 0 2 2 0 0 1 4 0zm4 8c0 1-1 1-1 1H3s-1 0-1-1 1-4 6-4 6 3 6 4zm-1-.004c-.001-.246-.154-.986-.832-1.664C11.516 10.68 10.289 10 8 10c-2.29 0-3.516.68-4.168 1.332-.678.678-.83 1.418-.832 1.664h10z"/>
+                            </svg>
+                        </button>
+                    }
+                    else
+                    {
+                        <div class="card-slot card-slot-empty">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="currentColor" viewBox="0 0 16 16">
+                                <path d="M8 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm2-3a2 2 0 1 1-4 0 2 2 0 0 1 4 0zm4 8c0 1-1 1-1 1H3s-1 0-1-1 1-4 6-4 6 3 6 4zm-1-.004c-.001-.246-.154-.986-.832-1.664C11.516 10.68 10.289 10 8 10c-2.29 0-3.516.68-4.168 1.332-.678.678-.83 1.418-.832 1.664h10z"/>
+                            </svg>
+                        </div>
+                    }
                 }
-                else if (ShowMoveSlot)
-                {
-                    <button class="card-slot card-slot-empty card-slot-moveable card-action-btn"
-                            data-event-id="@Event.Id"
-                            data-action="move-slot"
-                            data-slot-index="@i"
-                            title="Bu konuma geç">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="currentColor" viewBox="0 0 16 16">
-                            <path d="M8 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm2-3a2 2 0 1 1-4 0 2 2 0 0 1 4 0zm4 8c0 1-1 1-1 1H3s-1 0-1-1 1-4 6-4 6 3 6 4zm-1-.004c-.001-.246-.154-.986-.832-1.664C11.516 10.68 10.289 10 8 10c-2.29 0-3.516.68-4.168 1.332-.678.678-.83 1.418-.832 1.664h10z"/>
-                        </svg>
-                    </button>
-                }
-                else
-                {
-                    <div class="card-slot card-slot-empty">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="currentColor" viewBox="0 0 16 16">
-                            <path d="M8 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm2-3a2 2 0 1 1-4 0 2 2 0 0 1 4 0zm4 8c0 1-1 1-1 1H3s-1 0-1-1 1-4 6-4 6 3 6 4zm-1-.004c-.001-.246-.154-.986-.832-1.664C11.516 10.68 10.289 10 8 10c-2.29 0-3.516.68-4.168 1.332-.678.678-.83 1.418-.832 1.664h10z"/>
-                        </svg>
-                    </div>
-                }
-            }
-        </div>
+            </div>
+        }
 
         <div class="card-shine"></div>
         <div class="card-glare"></div>

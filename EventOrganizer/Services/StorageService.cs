@@ -73,6 +73,42 @@ public class StorageService
         return (ms, obj.ContentType ?? "image/jpeg");
     }
 
+    // Kart arka yüzü iç alan oranına göre kırpar: 245px kart - 2×3 border - 2×10 padding = 219px geniş,
+    // 342px - 2×3 - 2×10 = 316px; header ~42px çıkar → ~274px yüksek.
+    // 2× kalitede hedef: 438×548.
+    public async Task<string> UploadTemplateImageAsync(Stream stream, string fileName)
+    {
+        const int W = 438, H = 548;
+        var objectName = $"templates/{Guid.NewGuid():N}.png";
+
+        using var image = await Image.LoadAsync(stream);
+        image.Mutate(x =>
+        {
+            // Oranı koruyarak ortadan kırp (event görselleriyle aynı mantık)
+            var safeX = 0; var safeY = 0; var safeW = image.Width; var safeH = image.Height;
+            var targetRatio = (double)W / H;
+            var srcRatio    = (double)image.Width / image.Height;
+            if (srcRatio > targetRatio)
+            {
+                safeW = (int)(image.Height * targetRatio);
+                safeX = (image.Width - safeW) / 2;
+            }
+            else
+            {
+                safeH = (int)(image.Width / targetRatio);
+                safeY = (image.Height - safeH) / 2;
+            }
+            x.Crop(new Rectangle(safeX, safeY, safeW, safeH));
+            x.Resize(new ResizeOptions { Size = new Size(W, H), Mode = ResizeMode.Stretch });
+        });
+
+        using var ms = new MemoryStream();
+        await image.SaveAsPngAsync(ms);
+        ms.Position = 0;
+        await _client.UploadObjectAsync(_bucket, objectName, "image/png", ms);
+        return $"/img/{objectName}";
+    }
+
     public async Task DeleteImageAsync(string? imageUrl)
     {
         if (string.IsNullOrEmpty(imageUrl)) return;

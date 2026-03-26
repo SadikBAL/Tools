@@ -234,4 +234,13 @@ _ = app.Services.GetRequiredService<FirestoreDb>()
     .Collection("events").Limit(1).GetSnapshotAsync()
     .ContinueWith(_ => { });
 
+// Futbol template seed — ilk çalıştırmada yoksa oluşturur
+_ = Task.Run(async () =>
+{
+    await Task.Delay(3000);
+    using var scope = app.Services.CreateScope();
+    var fs = scope.ServiceProvider.GetRequiredService<EventOrganizer.Services.FirestoreService>();
+    try { await fs.SeedFootballTemplateAsync(); } catch { }
+});
+
 app.Run();

@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 160" fill="none" stroke="rgba(255,255,255,0.55)" stroke-width="1.2" stroke-linecap="round">
+  <!-- outer boundary -->
+  <rect x="4" y="4" width="92" height="152" rx="2"/>
+  <!-- halfway line -->
+  <line x1="4" y1="80" x2="96" y2="80"/>
+  <!-- center circle -->
+  <circle cx="50" cy="80" r="14"/>
+  <!-- center spot -->
+  <circle cx="50" cy="80" r="1.8" fill="rgba(255,255,255,0.55)" stroke="none"/>
+  <!-- top penalty area -->
+  <rect x="22" y="4" width="56" height="30"/>
+  <!-- top goal area -->
+  <rect x="35" y="4" width="30" height="12"/>
+  <!-- top arc -->
+  <path d="M 37 34 A 14 14 0 0 1 63 34" stroke-dasharray="3 2"/>
+  <!-- top goal -->
+  <rect x="40" y="1" width="20" height="5" stroke-width="1.8"/>
+  <!-- top corner arcs -->
+  <path d="M 4 10 A 6 6 0 0 0 10 4"/>
+  <path d="M 96 10 A 6 6 0 0 1 90 4"/>
+  <!-- bottom penalty area -->
+  <rect x="22" y="126" width="56" height="30"/>
+  <!-- bottom goal area -->
+  <rect x="35" y="144" width="30" height="12"/>
+  <!-- bottom arc -->
+  <path d="M 37 126 A 14 14 0 0 0 63 126" stroke-dasharray="3 2"/>
+  <!-- bottom goal -->
+  <rect x="40" y="154" width="20" height="5" stroke-width="1.8"/>
+  <!-- bottom corner arcs -->
+  <path d="M 4 150 A 6 6 0 0 1 10 156"/>
+  <path d="M 96 150 A 6 6 0 0 0 90 156"/>
+</svg>

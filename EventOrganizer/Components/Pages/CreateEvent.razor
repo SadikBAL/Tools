@@ -29,13 +29,38 @@
 
             <div class="form-row">
                 <label>Kategori</label>
-                <InputSelect @bind-Value="_model.Category" class="form-select-dark">
+                <InputSelect @bind-Value="_model.Category" @bind-Value:after="OnCategoryChanged" class="form-select-dark">
                     <option value="music">🎵  Müzik</option>
                     <option value="tech">💻  Teknoloji</option>
                     <option value="art">🎨  Sanat</option>
                     <option value="sport">⚽  Spor</option>
                 </InputSelect>
             </div>
+
+            @if (_templates.Count > 0)
+            {
+                <div class="form-row">
+                    <label>Template <span class="form-optional">(opsiyonel)</span></label>
+                    <div class="tpl-picker">
+                        <button type="button" class="tpl-pick-card @(_selectedTemplateId == "" ? "selected" : "")" @onclick='() => SelectTemplate(null)'>
+                            <span class="tpl-pick-name">Yok</span>
+                            <span class="tpl-pick-cap">—</span>
+                        </button>
+                        @foreach (var t in _templates)
+                        {
+                            var tpl = t;
+                            <button type="button" class="tpl-pick-card @(_selectedTemplateId == tpl.Id ? "selected" : "")" @onclick="() => SelectTemplate(tpl)">
+                                @if (!string.IsNullOrEmpty(tpl.SvgUrl))
+                                {
+                                    <img src="@tpl.SvgUrl" class="tpl-pick-svg" alt="" />
+                                }
+                                <span class="tpl-pick-name">@tpl.Name</span>
+                                <span class="tpl-pick-cap">@tpl.Capacity kişi</span>
+                            </button>
+                        }
+                    </div>
+                </div>
+            }
 
             <div class="form-row-half">
                 <div class="form-row">
@@ -45,7 +70,7 @@
                 </div>
                 <div class="form-row">
                     <label>Kapasite</label>
-                    <InputNumber @bind-Value="_model.Capacity" placeholder="100" />
+                    <InputNumber @bind-Value="_model.Capacity" placeholder="100" disabled="@(_selectedTemplateId != "")" />
                     <ValidationMessage For="() => _model.Capacity" />
                 </div>
             </div>
@@ -132,6 +157,14 @@
     private string              _error      = "";
     private DotNetObjectReference<CreateEvent>? _dotNetRef;
 
+    private List<EventTemplate> _templates          = [];
+    private string              _selectedTemplateId = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadTemplates();
+    }
+
     private byte[]? _imageBytes;
     private string? _imageContentType;
     private string? _imageFileName;
@@ -139,6 +172,32 @@
     private bool    _showCropper;
     private string? _cropperSrc;
     private int     _cropX, _cropY, _cropW, _cropH;
+
+    private async Task LoadTemplates()
+    {
+        try { _templates = await FirestoreService.GetTemplatesByCategoryAsync(_model.Category); }
+        catch { _templates = []; }
+    }
+
+    private async Task OnCategoryChanged()
+    {
+        _selectedTemplateId = "";
+        await LoadTemplates();
+    }
+
+    private void SelectTemplate(EventTemplate? tpl)
+    {
+        if (tpl == null)
+        {
+            _selectedTemplateId = "";
+            _model.Capacity     = 0;
+        }
+        else
+        {
+            _selectedTemplateId = tpl.Id;
+            _model.Capacity     = tpl.Capacity;
+        }
+    }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -272,7 +331,8 @@
                 CreatedByUserId = creatorId,
                 CreatedByName   = creatorName,
                 IsPublic        = _model.IsPublic,
-                Participants    = [new Participant { UserId = creatorId, Name = creatorName, PictureUrl = creatorPicture }],
+                TemplateId      = _selectedTemplateId,
+                Participants    = [new Participant { UserId = creatorId, Name = creatorName, PictureUrl = creatorPicture, SlotIndex = 0 }],
                 ParticipantIds  = [creatorId],
             };
 
@@ -289,164 +349,7 @@
 }
 
 <style>
-.create-page {
-    display: flex;
-    justify-content: center;
-    padding: 2.5rem 1rem;
-}
-
-.create-card {
-    width: 100%;
-    max-width: 560px;
-    background: rgba(10, 10, 25, 0.82);
-    border: 1px solid rgba(255,255,255,0.1);
-    border-radius: 18px;
-    padding: 2rem 2.2rem;
-    backdrop-filter: blur(14px);
-    box-shadow: 0 12px 40px rgba(0,0,0,0.5);
-}
-
-.create-card-header {
-    margin-bottom: 1.8rem;
-    border-bottom: 1px solid rgba(255,255,255,0.08);
-    padding-bottom: 1rem;
-}
-
-.create-card-title {
-    font-size: 10px;
-    font-weight: 800;
-    letter-spacing: 3px;
-    color: rgba(255,255,255,0.35);
-    font-family: 'JetBrains Mono', monospace;
-    text-transform: uppercase;
-}
-
-.create-form { display: flex; flex-direction: column; gap: 1.1rem; }
-
-.form-row { display: flex; flex-direction: column; gap: 5px; }
-
-.form-row label {
-    font-size: 9px;
-    font-weight: 700;
-    letter-spacing: 1.5px;
-    text-transform: uppercase;
-    color: rgba(255,255,255,0.4);
-    font-family: 'JetBrains Mono', monospace;
-}
-
-.form-optional { font-weight: 400; opacity: 0.6; text-transform: none; letter-spacing: 0; }
-
-.create-form input,
-.create-form textarea,
-.form-select-dark {
-    background: rgba(255,255,255,0.05);
-    border: 1px solid rgba(255,255,255,0.12);
-    border-radius: 10px;
-    padding: 9px 13px;
-    color: #f1f5f9;
-    font-size: 13px;
-    font-family: 'JetBrains Mono', monospace;
-    outline: none;
-    transition: border-color 0.2s, background 0.2s;
-    width: 100%;
-    box-sizing: border-box;
-    color-scheme: dark;
-    -webkit-text-fill-color: #f1f5f9;
-}
-
-.create-form input:focus,
-.create-form textarea:focus,
-.form-select-dark:focus {
-    border-color: rgba(124, 58, 237, 0.7);
-    background: rgba(124, 58, 237, 0.06);
-}
-
-/* Tarayıcı autofill arka plan override */
-.create-form input:-webkit-autofill,
-.create-form input:-webkit-autofill:hover,
-.create-form input:-webkit-autofill:focus {
-    -webkit-box-shadow: 0 0 0px 1000px #0e0e1f inset;
-    -webkit-text-fill-color: #f1f5f9;
-    caret-color: #f1f5f9;
-}
-
-.form-select-dark option { background: #1a1a2e; }
-
-.create-form textarea { resize: vertical; min-height: 72px; }
-
-.form-row-half { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
-
-.form-row-toggle {
-    flex-direction: row;
-    align-items: center;
-    justify-content: space-between;
-}
-
-.form-toggle {
-    width: 18px;
-    height: 18px;
-    accent-color: #7c3aed;
-    cursor: pointer;
-}
-
-.form-error {
-    background: rgba(239,68,68,0.1);
-    border: 1px solid rgba(239,68,68,0.3);
-    border-radius: 8px;
-    padding: 8px 12px;
-    font-size: 12px;
-    color: #fca5a5;
-    font-family: 'JetBrains Mono', monospace;
-}
-
-.create-form .validation-message {
-    font-size: 10px;
-    color: #fca5a5;
-    font-family: 'JetBrains Mono', monospace;
-    margin-top: 2px;
-}
-
-.form-submit {
-    margin-top: 0.5rem;
-    padding: 11px;
-    border-radius: 12px;
-    border: none;
-    background: linear-gradient(135deg, #7c3aed, #2563eb);
-    color: #fff;
-    font-size: 13px;
-    font-weight: 700;
-    font-family: 'JetBrains Mono', monospace;
-    letter-spacing: 0.5px;
-    cursor: pointer;
-    transition: opacity 0.2s, transform 0.15s;
-}
-
-.form-submit:hover:not(:disabled) { opacity: 0.88; transform: translateY(-1px); }
-.form-submit:disabled { opacity: 0.5; cursor: default; }
-
-.file-upload-btn {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 9px 13px;
-    background: rgba(255,255,255,0.05);
-    border: 1px dashed rgba(255,255,255,0.2);
-    border-radius: 10px;
-    color: rgba(255,255,255,0.55);
-    font-size: 12px;
-    font-family: 'JetBrains Mono', monospace;
-    cursor: pointer;
-    transition: all 0.2s;
-    box-sizing: border-box;
-    width: 100%;
-}
-
-.file-upload-btn:hover {
-    border-color: rgba(124,58,237,0.6);
-    background: rgba(124,58,237,0.07);
-    color: rgba(255,255,255,0.9);
-}
-
+/* ── Image preview ── */
 .image-preview-wrap {
     position: relative;
     margin-top: 8px;
@@ -579,17 +482,6 @@
 }
 
 .crop-btn-apply:hover { opacity: 0.88; }
-
-.cards-loading, .cards-empty {
-    width: 100%;
-    text-align: center;
-    padding: 4rem 1rem;
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 12px;
-    color: rgba(255,255,255,0.3);
-    letter-spacing: 1px;
-}
-
 
 /* Google Maps autocomplete dropdown - dark tema */
 .pac-container {

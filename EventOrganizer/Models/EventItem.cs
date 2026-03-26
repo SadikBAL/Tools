@@ -47,4 +47,7 @@ public class EventItem
     // Firestore array-contains sorguları için düz ID listesi
     [FirestoreProperty("participantIds")]
     public List<string> ParticipantIds { get; set; } = [];
+
+    [FirestoreProperty("templateId")]
+    public string TemplateId { get; set; } = "";
 }

@@ -165,4 +165,61 @@ public class FirestoreService
         };
         await _db.Collection("events").Document(evt.Id).UpdateAsync(updates);
     });
+
+    // ── Template metotları ──────────────────────────────────────────────────
+
+    public Task<List<EventTemplate>> GetTemplatesByCategoryAsync(string category) => WithRetry(async () =>
+    {
+        var snapshot = await _db.Collection("templates")
+            .WhereEqualTo("category", category)
+            .GetSnapshotAsync();
+        return snapshot.Documents
+            .Select(d => d.ConvertTo<EventTemplate>())
+            .OrderBy(t => t.Name)
+            .ToList();
+    });
+
+    public Task<EventTemplate?> GetTemplateByIdAsync(string id) => WithRetry(async () =>
+    {
+        var doc = await _db.Collection("templates").Document(id).GetSnapshotAsync();
+        return doc.Exists ? doc.ConvertTo<EventTemplate>() : null;
+    });
+
+    public Task CreateTemplateAsync(EventTemplate template) => WithRetry(async () =>
+    {
+        template.CreatedAt = Timestamp.GetCurrentTimestamp();
+        var docRef = _db.Collection("templates").Document();
+        template.Id = docRef.Id;
+        await docRef.SetAsync(template);
+    });
+
+    public Task SeedFootballTemplateAsync() => WithRetry(async () =>
+    {
+        var existing = await _db.Collection("templates")
+            .WhereEqualTo("name", "Halı Saha 7v7")
+            .GetSnapshotAsync();
+        if (existing.Documents.Count > 0) return;
+
+        var slots = new List<TemplateSlot>();
+        for (int r = 0; r < 2; r++)
+            for (int c = 0; c < 7; c++)
+                slots.Add(new TemplateSlot { Row = r, Col = c });
+
+        var template = new EventTemplate
+        {
+            Name            = "Halı Saha 7v7",
+            Category        = "sport",
+            Capacity        = 14,
+            Rows            = 2,
+            Cols            = 7,
+            ActiveSlots     = slots,
+            SvgUrl          = "/img/templates/halisaha.svg",
+            CreatedByUserId = "system",
+            CreatedAt       = Timestamp.GetCurrentTimestamp(),
+        };
+
+        var docRef = _db.Collection("templates").Document();
+        template.Id = docRef.Id;
+        await docRef.SetAsync(template);
+    });
 }

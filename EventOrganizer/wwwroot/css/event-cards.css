@@ -1574,21 +1574,48 @@
     display: grid;
     grid-template-columns: repeat(auto-fill, var(--slot-size, 32px));
     gap: 5px;
-    overflow-y: scroll;
+    overflow: hidden;
     justify-content: center;
     align-content: center;
     flex: 1;
-    scrollbar-width: none;
-    -ms-overflow-style: none;
     cursor: grab;
     user-select: none;
     -webkit-user-select: none;
     touch-action: none;
 }
 
-.card-slots-grid::-webkit-scrollbar { display: none; }
-
 .card-slots-grid.is-dragging { cursor: grabbing; }
+
+/* Template tabanlı ızgara: PNG arka plan + kesin grid konumlandırma */
+.card-slots-tpl {
+    grid-template-columns: repeat(var(--tpl-cols, 7), var(--slot-size, 36px));
+    grid-template-rows:    repeat(var(--tpl-rows, 2), var(--slot-size, 36px));
+    place-content: center;
+    overflow: hidden;
+    flex: 1;
+    position: relative;
+    cursor: default;
+}
+
+/* Arka plan resmi: slotların arkasında, karartılmış */
+.card-slots-tpl::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image: var(--tpl-bg);
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    opacity: 0.12;
+    z-index: 0;
+    pointer-events: none;
+}
+
+/* Slotlar her zaman resmin üstünde */
+.card-slots-tpl > * {
+    position: relative;
+    z-index: 1;
+}
 
 .card-slot {
     width: var(--slot-size, 32px);
