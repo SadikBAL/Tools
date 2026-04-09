@@ -41,6 +41,7 @@
 
 [Oo]bj/
 [Dd]ebug/
+[Uu]nrealProjectCleaner/[Xx]64/*
 .idea/
 
 .claude/
@@ -48,9 +49,10 @@ EventOrganizer/.claude/
 GamerLibrary/.claude/
 UnrealParser/.claude/
 UnrealProjectCleaner/.claude/
-
 EventOrganizer/deploy-update.bat
 EventOrganizer/deploy.bat
 EventOrganizer/deploy-log.txt
 EventOrganizer/grant-secret.bat
 *.md
+
+UnrealProjectCleaner/UnrealProjectCleaner/x64
