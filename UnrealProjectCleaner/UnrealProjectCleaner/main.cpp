@@ -5,6 +5,8 @@
 #include <filesystem>
 #include <limits>
 #include <sstream>
+#include <fstream>
+#include <functional>
 #include <future>
 #define NOMINMAX
 #include <windows.h>
@@ -179,15 +181,23 @@ bool IsProtected(const fs::path& path)
     return false;
 }
 
-std::string GetProjectName(const fs::path& startPath)
+// Returns the first *.uproject found directly inside startPath, or an empty path if none exists
+fs::path FindUprojectFile(const fs::path& startPath)
 {
     try
     {
         for (auto& e : fs::directory_iterator(startPath, fs::directory_options::skip_permission_denied))
             if (e.is_regular_file() && e.path().extension() == ".uproject")
-                return e.path().stem().string();
+                return e.path();
     }
     catch (...) {}
+    return {};
+}
+
+std::string GetProjectName(const fs::path& startPath)
+{
+    fs::path uproject = FindUprojectFile(startPath);
+    if (!uproject.empty()) return uproject.stem().string();
     return startPath.filename().string();
 }
 
@@ -575,13 +585,402 @@ void CleanSelected(std::vector<GroupInfo>& groups, const fs::path& startPath)
 
 void RunGenerateProjectFiles(const fs::path& startPath)
 {
+    fs::path uproject = FindUprojectFile(startPath);
+    if (!uproject.empty()) GenerateProjectFiles(uproject);
+}
+
+// ----------------------------------------------------------------
+// Engine discovery
+// ----------------------------------------------------------------
+
+// Relative path of the engine's UnrealBuildTool launcher, used to validate an engine root
+const wchar_t* ENGINE_BUILD_BAT = L"Engine\\Build\\BatchFiles\\Build.bat";
+
+bool IsValidEngineRoot(const fs::path& root)
+{
+    if (root.empty()) return false;
+    std::error_code ec;
+    return fs::exists(root / ENGINE_BUILD_BAT, ec);
+}
+
+// Reads the "EngineAssociation" value out of a .uproject.
+// The file is JSON but we only need one key, so a plain text scan avoids a JSON dependency.
+// Returns e.g. "5.8" for a launcher install, or a GUID for a source build.
+std::string ReadEngineAssociation(const fs::path& uproject)
+{
+    std::ifstream in(uproject);
+    if (!in) return {};
+    std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+
+    const std::string key = "\"EngineAssociation\"";
+    size_t pos = text.find(key);
+    if (pos == std::string::npos) return {};
+    pos = text.find(':', pos + key.size());
+    if (pos == std::string::npos) return {};
+    size_t open = text.find('"', pos);
+    if (open == std::string::npos) return {};
+    size_t close = text.find('"', open + 1);
+    if (close == std::string::npos) return {};
+    return text.substr(open + 1, close - open - 1);
+}
+
+// Reads a REG_SZ value; returns an empty string when the key or value is missing
+std::wstring ReadRegistryString(HKEY hive, const std::wstring& subKey, const std::wstring& valueName)
+{
+    wchar_t buffer[MAX_PATH * 2];
+    DWORD size = sizeof(buffer);
+    DWORD flags = RRF_RT_REG_SZ;
+    if (RegGetValueW(hive, subKey.c_str(), valueName.c_str(), flags, nullptr, buffer, &size) != ERROR_SUCCESS)
+        return {};
+    return std::wstring(buffer);
+}
+
+// Environment variable name matching QuickBuild.bat's convention: "5.8" -> UE_5_8_PATH
+std::wstring EngineEnvVarName(const std::string& assoc)
+{
+    std::wstring name = L"UE_";
+    for (char c : assoc)
+        name += (c == '.') ? L'_' : (wchar_t)c;
+    name += L"_PATH";
+    return name;
+}
+
+std::wstring ReadEnvVar(const std::wstring& name)
+{
+    DWORD needed = GetEnvironmentVariableW(name.c_str(), nullptr, 0);
+    if (needed == 0) return {};
+    std::wstring value(needed, L'\0');
+    DWORD written = GetEnvironmentVariableW(name.c_str(), value.data(), needed);
+    value.resize(written);
+    return value;
+}
+
+// Persists an environment variable for the current user (the API equivalent of setx)
+// and makes it visible to this process immediately.
+void PersistUserEnvVar(const std::wstring& name, const std::wstring& value)
+{
+    SetEnvironmentVariableW(name.c_str(), value.c_str());
+
+    HKEY hKey = nullptr;
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Environment", 0, KEY_SET_VALUE, &hKey) != ERROR_SUCCESS)
+        return;
+    RegSetValueExW(hKey, name.c_str(), 0, REG_SZ,
+                   reinterpret_cast<const BYTE*>(value.c_str()),
+                   (DWORD)((value.size() + 1) * sizeof(wchar_t)));
+    RegCloseKey(hKey);
+
+    // Notify running shells so new processes pick the variable up without a logoff
+    DWORD_PTR result = 0;
+    SendMessageTimeoutW(HWND_BROADCAST, WM_SETTINGCHANGE, 0,
+                        reinterpret_cast<LPARAM>(L"Environment"),
+                        SMTO_ABORTIFHUNG, 5000, &result);
+}
+
+// Resolves the engine root for a given EngineAssociation value, without prompting.
+// Order: env var -> launcher registry -> source-build registry -> default install path.
+fs::path ResolveEngineRoot(const std::string& assoc)
+{
+    if (assoc.empty()) return {};
+
+    // 1. Environment variable (shared with QuickBuild.bat)
+    fs::path fromEnv = ReadEnvVar(EngineEnvVarName(assoc));
+    if (IsValidEngineRoot(fromEnv)) return fromEnv;
+
+    std::wstring wassoc(assoc.begin(), assoc.end()); // safe: version strings / GUIDs are ASCII
+
+    // 2. Launcher install
+    fs::path fromReg = ReadRegistryString(HKEY_LOCAL_MACHINE,
+                                          L"SOFTWARE\\EpicGames\\Unreal Engine\\" + wassoc,
+                                          L"InstalledDirectory");
+    if (IsValidEngineRoot(fromReg)) return fromReg;
+
+    // 3. Source build — the association is a GUID registered under the user's Builds key
+    fs::path fromBuilds = ReadRegistryString(HKEY_CURRENT_USER,
+                                             L"SOFTWARE\\Epic Games\\Unreal Engine\\Builds",
+                                             wassoc);
+    if (IsValidEngineRoot(fromBuilds)) return fromBuilds;
+
+    // 4. Default launcher location
+    fs::path fallback = L"C:\\Program Files\\Epic Games\\UE_" + wassoc;
+    if (IsValidEngineRoot(fallback)) return fallback;
+
+    return {};
+}
+
+// Resolves the engine root, asking the user once if every automatic lookup fails.
+// A path entered by the user is persisted so later runs find it automatically.
+fs::path ResolveEngineRootInteractive(const std::string& assoc)
+{
+    fs::path root = ResolveEngineRoot(assoc);
+    if (!root.empty()) return root;
+
+    std::cout << COL_YELLOW << "  Unreal Engine " << assoc << " not found automatically.\n"
+              << "  Enter the engine root - the folder containing Engine\\\n" << COL_RESET
+              << COL_WHITE << "  Path: " << COL_RESET;
+
+    std::string input;
+    if (!std::getline(std::cin, input) || input.empty())
+        return {};
+
+    // Strip surrounding quotes a user may have pasted along with the path
+    if (input.size() >= 2 && input.front() == '"' && input.back() == '"')
+        input = input.substr(1, input.size() - 2);
+
+    fs::path candidate(input);
+    if (!IsValidEngineRoot(candidate))
+    {
+        std::cout << COL_RED << "  [!] Invalid path - Engine\\Build\\BatchFiles\\Build.bat not found.\n" << COL_RESET;
+        return {};
+    }
+
+    PersistUserEnvVar(EngineEnvVarName(assoc), candidate.wstring());
+    std::cout << COL_GREEN << "  Saved. Future builds will find it automatically.\n" << COL_RESET;
+    return candidate;
+}
+
+// ----------------------------------------------------------------
+// Build
+// ----------------------------------------------------------------
+
+// Runs a batch file through cmd.exe, capturing stdout+stderr line by line.
+// Output goes to onLine instead of the console, so the caller renders its own progress.
+// Returns the process exit code, or -1 if the process could not be started.
+int RunBatchCaptured(const fs::path& batFile, const std::wstring& args, const fs::path& workingDir,
+                     const std::function<void(const std::string&)>& onLine)
+{
+    // cmd /c "<bat>" <args> — the outer quotes keep cmd from mangling paths with spaces
+    std::wstring cmdLine = L"cmd.exe /c \"\"" + batFile.wstring() + L"\"";
+    if (!args.empty()) cmdLine += L" " + args;
+    cmdLine += L"\"";
+
+    SECURITY_ATTRIBUTES sa = {};
+    sa.nLength        = sizeof(sa);
+    sa.bInheritHandle = TRUE;
+
+    HANDLE readEnd = nullptr, writeEnd = nullptr;
+    if (!CreatePipe(&readEnd, &writeEnd, &sa, 0)) return -1;
+    // Only the child may inherit the write end — our read end must stay private
+    SetHandleInformation(readEnd, HANDLE_FLAG_INHERIT, 0);
+
+    STARTUPINFOW si = {};
+    si.cb         = sizeof(si);
+    si.dwFlags    = STARTF_USESTDHANDLES;
+    si.hStdOutput = writeEnd;
+    si.hStdError  = writeEnd;
+    si.hStdInput  = GetStdHandle(STD_INPUT_HANDLE);
+
+    PROCESS_INFORMATION pi = {};
+    std::vector<wchar_t> mutableCmd(cmdLine.begin(), cmdLine.end());
+    mutableCmd.push_back(L'\0');
+
+    std::wstring wd = workingDir.wstring();
+    if (!CreateProcessW(nullptr, mutableCmd.data(), nullptr, nullptr, TRUE, CREATE_NO_WINDOW, nullptr,
+                        wd.empty() ? nullptr : wd.c_str(), &si, &pi))
+    {
+        CloseHandle(readEnd);
+        CloseHandle(writeEnd);
+        return -1;
+    }
+    // The parent must drop its copy of the write end or ReadFile never sees EOF
+    CloseHandle(writeEnd);
+
+    std::string pending;
+    char  buffer[4096];
+    DWORD read = 0;
+    while (ReadFile(readEnd, buffer, sizeof(buffer), &read, nullptr) && read > 0)
+    {
+        pending.append(buffer, read);
+        size_t nl;
+        while ((nl = pending.find('\n')) != std::string::npos)
+        {
+            std::string text = pending.substr(0, nl);
+            if (!text.empty() && text.back() == '\r') text.pop_back();
+            pending.erase(0, nl + 1);
+            if (onLine) onLine(text);
+        }
+    }
+    if (!pending.empty() && onLine) onLine(pending);
+
+    WaitForSingleObject(pi.hProcess, INFINITE);
+    DWORD exitCode = 0;
+    GetExitCodeProcess(pi.hProcess, &exitCode);
+    CloseHandle(pi.hThread);
+    CloseHandle(pi.hProcess);
+    CloseHandle(readEnd);
+    return (int)exitCode;
+}
+
+// ----------------------------------------------------------------
+// Build progress rendering
+// ----------------------------------------------------------------
+
+const int PROGRESS_BAR_WIDTH = 28;
+
+// Wipes the in-place progress line so normal output can be printed over it
+void ClearProgressLine()
+{
+    std::cout << "\r" << std::string(PROGRESS_BAR_WIDTH + 28, ' ') << "\r" << std::flush;
+}
+
+// Redraws the single-line progress bar in place (no newline)
+void PrintProgress(const std::string& label, int percent)
+{
+    percent = std::clamp(percent, 0, 100);
+    int filled = (PROGRESS_BAR_WIDTH * percent) / 100;
+
+    std::string pct = std::to_string(percent) + "%";
+    std::ostringstream bar;
+    bar << "\r  " << label << " " << COL_CYAN << "[";
+    for (int i = 0; i < PROGRESS_BAR_WIDTH; ++i) bar << (i < filled ? "#" : ".");
+    bar << "]" << COL_RESET << " " << COL_WHITE
+        << std::string(4 - pct.size(), ' ') << pct << COL_RESET;
+    std::cout << bar.str() << std::flush;
+}
+
+// UBT prefixes every compile/link action with "[123/456]" — the only progress signal we need
+bool ParseActionProgress(const std::string& line, int& percent)
+{
+    size_t start = line.find_first_not_of(" \t");
+    if (start == std::string::npos || line[start] != '[') return false;
+
+    size_t close = line.find(']', start);
+    size_t slash = line.find('/', start);
+    if (close == std::string::npos || slash == std::string::npos || slash > close) return false;
+
+    int done = 0, total = 0;
     try
     {
-        for (auto& e : fs::directory_iterator(startPath, fs::directory_options::skip_permission_denied))
-            if (e.is_regular_file() && e.path().extension() == ".uproject")
-            { GenerateProjectFiles(e.path()); break; }
+        done  = std::stoi(line.substr(start + 1, slash - start - 1));
+        total = std::stoi(line.substr(slash + 1, close - slash - 1));
     }
-    catch (...) {}
+    catch (...) { return false; }
+
+    if (total <= 0) return false;
+    percent = (int)((done * 100LL) / total);
+    return true;
+}
+
+// Compiler/linker/UBT failures we still surface even though normal output is hidden
+bool IsDiagnosticLine(const std::string& line)
+{
+    return ContainsIgnoreCase(line, ": error")
+        || ContainsIgnoreCase(line, ": fatal error")
+        || ContainsIgnoreCase(line, "error LNK")
+        || line.rfind("ERROR", 0) == 0;
+}
+
+// Prints the captured tail of a failed run — the fallback when no diagnostic line was recognised
+void PrintOutputTail(const std::vector<std::string>& tail)
+{
+    if (tail.empty()) return;
+    std::cout << COL_GREY << "  --- last output ---" << COL_RESET << "\n";
+    for (const auto& t : tail)
+        if (!t.empty()) std::cout << COL_GREY << "  " << t << COL_RESET << "\n";
+}
+
+// Builds the project's crash reporter if the project ships one (Tools\CrashReporter\Build.bat).
+// Projects without one are unaffected — this is a no-op that reports success.
+bool BuildCrashReporter(const fs::path& startPath)
+{
+    fs::path crashReporterDir = startPath / "Tools" / "CrashReporter";
+    fs::path buildBat = crashReporterDir / "Build.bat";
+    std::error_code ec;
+    if (!fs::exists(buildBat, ec)) return true;
+
+    // Short step with no action counter — show an indeterminate bar and keep the output hidden
+    PrintProgress("CrashReporter", 0);
+
+    std::vector<std::string> tail;
+    int code = RunBatchCaptured(buildBat, L"/nopause", crashReporterDir,
+        [&](const std::string& text)
+        {
+            tail.push_back(text);
+            if (tail.size() > 25) tail.erase(tail.begin());
+        });
+
+    ClearProgressLine();
+    if (code != 0)
+    {
+        std::cout << COL_RED << "  [!] CrashReporter build failed (exit code " << code << ")." << COL_RESET << "\n";
+        PrintOutputTail(tail);
+        return false;
+    }
+    std::cout << COL_GREEN << "  CrashReporter ready." << COL_RESET << "\n";
+    return true;
+}
+
+// Builds <ProjectName>Editor Win64 Development through the engine's UnrealBuildTool.
+bool BuildProject(const fs::path& startPath)
+{
+    fs::path uproject = FindUprojectFile(startPath);
+    if (uproject.empty())
+    {
+        std::cout << COL_RED << "  [!] No .uproject found in " << startPath.string() << COL_RESET << "\n";
+        return false;
+    }
+
+    std::string assoc = ReadEngineAssociation(uproject);
+    if (assoc.empty())
+    {
+        std::cout << COL_RED << "  [!] Could not read EngineAssociation from "
+                  << uproject.filename().string() << COL_RESET << "\n";
+        return false;
+    }
+
+    fs::path engineRoot = ResolveEngineRootInteractive(assoc);
+    if (engineRoot.empty())
+    {
+        std::cout << COL_RED << "  [!] Engine root not resolved - build skipped." << COL_RESET << "\n";
+        return false;
+    }
+    std::cout << COL_GREY << "  Engine: " << engineRoot.string() << COL_RESET << "\n";
+
+    if (!BuildCrashReporter(startPath)) return false;
+
+    std::string target = uproject.stem().string() + "Editor";
+    std::wstring wtarget(target.begin(), target.end()); // safe: target names are ASCII
+
+    std::cout << COL_CYAN << "  Building " << target << " (Win64 Development)" << COL_RESET << "\n";
+    std::wstring args = wtarget + L" Win64 Development \"" + uproject.wstring() +
+                        L"\" -WaitMutex -NoUBTMakefiles";
+
+    const std::string label = "Compiling";
+    std::vector<std::string> tail;          // kept only to explain a failure
+    int  lastPercent        = 0;
+    bool printedDiagnostic  = false;
+
+    PrintProgress(label, 0);
+    int code = RunBatchCaptured(engineRoot / ENGINE_BUILD_BAT, args, startPath,
+        [&](const std::string& text)
+        {
+            tail.push_back(text);
+            if (tail.size() > 40) tail.erase(tail.begin());
+
+            int percent = 0;
+            if (ParseActionProgress(text, percent))
+            {
+                if (percent != lastPercent) { lastPercent = percent; PrintProgress(label, percent); }
+                return;
+            }
+            if (IsDiagnosticLine(text))
+            {
+                ClearProgressLine();
+                std::cout << COL_RED << "  " << text << COL_RESET << "\n";
+                printedDiagnostic = true;
+                PrintProgress(label, lastPercent);
+            }
+        });
+
+    ClearProgressLine();
+    if (code != 0)
+    {
+        std::cout << COL_RED << "  [!] Build failed (exit code " << code << ")." << COL_RESET << "\n";
+        if (!printedDiagnostic) PrintOutputTail(tail);
+        return false;
+    }
+    PrintProgress(label, 100);
+    std::cout << "\n" << COL_GREEN << "  Build succeeded." << COL_RESET << "\n";
+    return true;
 }
 
 // ----------------------------------------------------------------
@@ -670,8 +1069,9 @@ void PrintMenu(const std::vector<GroupInfo>& groups, const fs::path& startPath)
     std::cout << COL_YELLOW << "  a" << COL_RESET << "  - Select all\n";
     std::cout << COL_YELLOW << "  n" << COL_RESET << "  - Deselect all\n";
     std::cout << COL_YELLOW << "  c" << COL_RESET << "  - Clean selected\n";
-    std::cout << COL_YELLOW << "  b" << COL_RESET << "  - Clean + Generate + Open project (Clean Build)\n";
+    std::cout << COL_YELLOW << "  b" << COL_RESET << "  - Clean + Generate + Build + Open project (Clean Build)\n";
     std::cout << COL_YELLOW << "  g" << COL_RESET << "  - Generate project files\n";
+    std::cout << COL_YELLOW << "  u" << COL_RESET << "  - Build editor (UnrealBuildTool)\n";
     std::cout << COL_YELLOW << "  r" << COL_RESET << "  - Refresh\n";
     std::cout << COL_YELLOW << "  q" << COL_RESET << "  - Quit\n";
     std::cout << "\n";
@@ -719,22 +1119,38 @@ int main()
             continue;
         }
 
+        if (line == "u" || line == "U")
+        {
+            std::cout << "\n";
+            try { BuildProject(startPath); } catch (...) {}
+            std::cout << COL_GREY << "\n  Press Enter to continue..." << COL_RESET;
+            std::getline(std::cin, line);
+            try { groups = FindTargetFolders(startPath); } catch (...) {}
+            continue;
+        }
+
         if (line == "b" || line == "B")
         {
             try { CleanSelected(groups, startPath); } catch (...) {}
             RunGenerateProjectFiles(startPath);
-            try
+
+            // Don't open the editor on a failed build — it would load stale or missing binaries
+            bool built = false;
+            try { built = BuildProject(startPath); } catch (...) {}
+            if (built)
             {
-                for (auto& e : fs::directory_iterator(startPath, fs::directory_options::skip_permission_denied))
+                fs::path uproject = FindUprojectFile(startPath);
+                if (!uproject.empty())
                 {
-                    if (e.is_regular_file() && e.path().extension() == ".uproject")
-                    {
-                        std::cout << COL_CYAN << "  Opening project: " << e.path().filename().string() << COL_RESET << "\n";
-                        OpenUproject(e.path());
-                        break;
-                    }
+                    std::cout << COL_CYAN << "  Opening project: " << uproject.filename().string() << COL_RESET << "\n";
+                    OpenUproject(uproject);
                 }
-            } catch (...) {}
+            }
+            else
+            {
+                std::cout << COL_GREY << "\n  Press Enter to continue..." << COL_RESET;
+                std::getline(std::cin, line);
+            }
             try { groups = FindTargetFolders(startPath); } catch (...) {}
             continue;
         }
